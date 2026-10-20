@@ -1,4 +1,5 @@
 export type FormName = string
+export type Part = { color: string; share: number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -8,10 +9,15 @@ declare module 'claude-code' {
       cost: string
       doing: string
       limit: number
+      week: number
       context: number
-      rtk: string
+      parts: Part[]
+      hit: number
+      tps: number
       lastReply: number
       turnStart: number
+      warmed: number
+      warmKind: 'glow' | 'thaw'
     }
   }
 }

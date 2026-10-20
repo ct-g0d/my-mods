@@ -25,7 +25,6 @@ function glyphWidth(ch: string): number {
 // Size of one font pixel, in screen pixels: the hours and minutes, then the smaller seconds.
 const PIXEL = 4
 const SECONDS_PIXEL = 3
-const GAP = 3
 const INK = '#8A8983'
 
 export function clockText(ms: number): string {
@@ -70,27 +69,52 @@ function countingDigit(x0: number, y0: number, count: number, step: number, at: 
   return out
 }
 
-// HH:MM in the big font, then the seconds in a smaller one that tick inside the drawing itself.
+// The clock asleep: moonlit blue digits.
+export const sleepyClock = (source: string) => source.replace('--lit:#F2A65A', '--lit:#8FB4FF')
+
+// The desk clock's casing, screen and lit-segment colours, light and dark.
+const CASE_STYLE =
+  `<style>:root{--rim:#B9B6AD;--top:#F4F2EC;--bot:#CFCBC1;--screen:#2A2620;--lit:#F2A65A}` +
+  `@media (prefers-color-scheme:dark){:root{--rim:#0E0D0C;--top:#4A4843;--bot:#2B2A27;--screen:#141210}}</style>`
+
+const CASE_DEFS =
+  `<defs>` +
+  `<linearGradient id="cb-case" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--top)"/><stop offset="1" style="stop-color:var(--bot)"/></linearGradient>` +
+  `<linearGradient id="cb-glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".5" stop-color="#fff" stop-opacity=".04"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+  `<filter id="cb-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
+  `</defs>`
+
+// HH:MM in the pixel font, lit amber on a recessed LCD
+// inside a bevelled desk-clock casing, with the unlit segments faintly behind them.
 export function clockSvg(ms: number): { source: string; width: number; height: number } {
   const text = clockText(ms)
+  const dx = 10
+  const dy = 10
   let x = 0
-  let rects = ''
+  let lit = ''
+  let ghost = ''
   for (const ch of text) {
-    rects += glyph(ch, x, 0, PIXEL)
+    lit += glyph(ch, dx + x, dy, PIXEL)
+    if (ch !== ':') ghost += glyph('8', dx + x, dy, PIXEL)
     x += (FONT[ch][0].length + 1) * PIXEL
   }
-  x += GAP - PIXEL
-  const height = 5 * PIXEL
-  const y = height - 5 * SECONDS_PIXEL
-  const seconds = (ms / 1000) % 60
-  const tens = countingDigit(x, y, 6, 10, seconds)
-  const ones = countingDigit(x + 4 * SECONDS_PIXEL, y, 10, 1, seconds % 10)
-  // A spare font pixel on the right, so the last column is never clipped.
-  const width = x + 8 * SECONDS_PIXEL
+  const width = dx + x - PIXEL + dx
+  const height = 40
   return {
     source:
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" ` +
-      `shape-rendering="crispEdges"><g fill="${INK}">${rects}${tens}${ones}</g></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">` +
+      CASE_STYLE + CASE_DEFS +
+      // Casing: a bevelled body with a dark rim and a bright top edge.
+      `<rect x=".5" y=".5" width="${width - 1}" height="${height - 1}" rx="8" fill="url(#cb-case)" style="stroke:var(--rim)"/>` +
+      `<rect x="1.5" y="1.5" width="${width - 3}" height="${height - 3}" rx="7" fill="none" stroke="#fff" stroke-opacity=".35"/>` +
+      // Screen: recessed, with a shadowed top lip.
+      `<rect x="5" y="5" width="${width - 10}" height="${height - 10}" rx="3.5" style="fill:var(--screen)"/>` +
+      `<rect x="5" y="5" width="${width - 10}" height="2" rx="1" fill="#000" fill-opacity=".35"/>` +
+      `<g shape-rendering="crispEdges" style="fill:var(--lit)" fill-opacity=".09">${ghost}</g>` +
+      `<g shape-rendering="crispEdges" style="fill:var(--lit)" filter="url(#cb-glow)">${lit}</g>` +
+      // Glass glare over the top half of the screen.
+      `<rect x="5" y="5" width="${width - 10}" height="${height - 10}" rx="3.5" fill="url(#cb-glass)"/>` +
+      `</svg>`,
     width,
     height,
   }
@@ -117,7 +141,7 @@ export function pixelText(text: string, px = PIXEL): { source: string; width: nu
 }
 
 export function costText(usd: number): string {
-  return `$${usd < 10 ? usd.toFixed(2) : usd < 100 ? usd.toFixed(1) : Math.round(usd)}`
+  return `$${usd.toFixed(2)}`
 }
 
 // A m:ss stopwatch that counts up on its own from `elapsed` seconds, in the small font.
