@@ -380,7 +380,7 @@ export const register: Register = on => {
 
       return (
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" {...(night ? { backgroundColor: NIGHT_BG, borderStyle: 'round', borderColor: NIGHT_BG, padding: 'xs' as const } : { paddingRight: 2 })}>
-          <Box flexDirection="row" alignItems="center" gap={2}>
+          <Box flexDirection="row" alignItems="center" gap={1}>
             <Svg source={night ? sleepyClock(forceDark(clock.source)) : clock.source} alt="Clock" width={clock.width} height={clock.height} />
             <Svg source={night ? dim(forceDark(stats.source), 0.6) : stats.source} alt={`Session stats. Status: ${label ? verb : 'Idle'}`} width={stats.width} height={stats.height} />
           </Box>
