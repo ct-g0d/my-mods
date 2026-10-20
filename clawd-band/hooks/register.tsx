@@ -151,6 +151,11 @@ async function refreshParts($: Engine) {
     ...buffer.map(c => ({ color: BUFFER, share: c.tokens / breakdown.rawMaxTokens })),
   ]
   if (JSON.stringify(await read($, parts)) !== JSON.stringify(next)) await update($, parts, () => next)
+  // The API's percent is absent until the window's first reply; estimate it meanwhile so CTX shows.
+  if ((await read($, context)) < 0) {
+    const estimate = Math.round((100 * used.reduce((sum, c) => sum + c.tokens, 0)) / breakdown.rawMaxTokens)
+    await update($, context, () => estimate)
+  }
 }
 
 function show($: Engine, name: string) {
