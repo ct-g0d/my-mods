@@ -1,0 +1,8 @@
+{
+  "name": "my-mods",
+  "owner": { "name": "Charles" },
+  "plugins": [
+    { "name": "clawd-band", "source": "./clawd-band", "description": "Animated Clawd above the prompt that reacts to what Claude is doing." },
+    { "name": "spinner-words", "source": "./spinner-words", "description": "Custom words in place of the spinner's 'Working'." }
+  ]
+}
