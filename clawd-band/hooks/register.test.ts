@@ -1,5 +1,5 @@
 import { FORMS } from './clawd-frames'
-import { fade, forceDark, isNight, statsSvg } from './design'
+import { DAY_PERIODS, fade, forceDark, isNight, periodAt, statsSvg } from './design'
 import { expect, mock, test } from 'claude-code/testing'
 
 // Clawd's tests run only where its artwork has been generated (see tools/gen.py).
@@ -60,9 +60,11 @@ test('desktop: an Edit call shows the Editing status', async ($, on) => {
   expect(during).toContain('Status: Editing')
 })
 
-test('desktop: idle shows the Idle status', async ($, on) => {
+test("desktop: idle shows the period's own word, or Sleeping at night", async ($, on) => {
   on('ui.render', pass)
-  expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain('Status: Idle')
+  const word = periodAt(Date.now())?.idle ?? 'Sleeping'
+  expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain(`Status: ${word}`)
+  expect(DAY_PERIODS.map(p => p.idle)).toEqual(['Stirring', 'Brewing', 'Ready', 'Lunching', 'Lounging', 'Basking', 'Unwinding', 'Drowsy'])
 })
 
 withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {

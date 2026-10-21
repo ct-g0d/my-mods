@@ -390,7 +390,7 @@ export const register: Register = on => {
       const ago = (now - sleepChangedAt) / 1000
       const dim = (source: string, to: number) => fade(source, asleep ? 1 : to, asleep ? to : 1, ago)
       const stats = statsSvg({
-        state: label ? verb : isNight(now) ? 'Sleeping' : 'Idle',
+        state: label ? verb : (periodAt(now)?.idle ?? 'Sleeping'),
         working,
         elapsed: startedAt && working ? Math.floor((now - startedAt) / 1000) : undefined,
         cacheMinutes: cacheLeft,
@@ -413,7 +413,7 @@ export const register: Register = on => {
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
           <Box flexDirection="row" alignItems="center" gap={1}>
             <Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} />
-            <Svg source={night ? dim(forceDark(stats.source), 0.6) : tone(stats.source)} alt={`Session stats. Status: ${label ? verb : 'Idle'}`} width={stats.width} height={stats.height} />
+            <Svg source={night ? dim(forceDark(stats.source), 0.6) : tone(stats.source)} alt={`Session stats. Status: ${label ? verb : (period?.idle ?? 'Sleeping')}`} width={stats.width} height={stats.height} />
           </Box>
           <Box flexDirection="row" alignItems="center" gap={2}>
             <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />

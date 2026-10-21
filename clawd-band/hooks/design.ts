@@ -523,7 +523,8 @@ export function sleepSvg(): Svg {
 const DAY_START = 5 * 60 + 30
 const PERIOD_MIN = (23 * 60 + 15 - DAY_START) / 8
 
-export type DayPeriod = { name: string; bg: string; dark?: boolean; art: () => Svg }
+// `idle` is what the status says while Clawd waits in that period.
+export type DayPeriod = { name: string; idle: string; bg: string; dark?: boolean; art: () => Svg }
 
 // Where the sun is at step i of 0 to 6 across the day: along an arc from low left to low right.
 const HORIZON = 28
@@ -705,6 +706,7 @@ export const DAY_PERIODS: DayPeriod[] = [
   {
     // The sun rising out of a warm haze low on the left, a pink cloud, and the night's last stars.
     name: 'Dawn',
+    idle: 'Stirring',
     bg: '#F8E1D3',
     art: () =>
       dayScene(
@@ -715,6 +717,7 @@ export const DAY_PERIODS: DayPeriod[] = [
   {
     // The sun up, white clouds, and two birds out.
     name: 'Morning',
+    idle: 'Brewing',
     bg: '#F9EBE0',
     art: () =>
       dayScene(
@@ -727,6 +730,7 @@ export const DAY_PERIODS: DayPeriod[] = [
   {
     // The sun climbing, and clouds drifting at two depths.
     name: 'Late morning',
+    idle: 'Ready',
     bg: '#FAF3EC',
     art: () =>
       dayScene(
@@ -739,6 +743,7 @@ export const DAY_PERIODS: DayPeriod[] = [
   {
     // The sun at its height, and a plane's contrail drawn slowly across the clear sky.
     name: 'Midday',
+    idle: 'Lunching',
     bg: '#FAF9F5',
     art: () =>
       dayScene(
@@ -752,6 +757,7 @@ export const DAY_PERIODS: DayPeriod[] = [
   {
     // The sun past its height, and fat clouds drifting by.
     name: 'Afternoon',
+    idle: 'Lounging',
     bg: '#FAF4DE',
     art: () =>
       dayScene(
@@ -765,6 +771,7 @@ export const DAY_PERIODS: DayPeriod[] = [
   {
     // The sun low on the right and deep orange, gold-lit clouds, and a V of geese heading home.
     name: 'Golden hour',
+    idle: 'Basking',
     bg: '#F8E3BC',
     art: () =>
       dayScene(
@@ -776,6 +783,7 @@ export const DAY_PERIODS: DayPeriod[] = [
     // The sun sinking into haze low on the right, a rose cloud, the first stars coming out, and sky
     // lanterns rising.
     name: 'Dusk',
+    idle: 'Unwinding',
     bg: '#F2C9A0',
     art: () =>
       dayScene(
@@ -786,6 +794,7 @@ export const DAY_PERIODS: DayPeriod[] = [
   {
     // The full moon rising low on the left before the night's crescent, stars, and the first z's.
     name: 'Evening',
+    idle: 'Drowsy',
     bg: '#3D4466',
     dark: true,
     art: () =>
