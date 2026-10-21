@@ -1,0 +1,94 @@
+CLAWD BAND 1.0.2 - FEATURES
+===========================
+
+THE BAND
+- A row above the prompt box in the Claude desktop app: clock and session
+  stats on the left, the sky and Clawd on the right.
+- In a terminal, a small block-character Clawd instead.
+
+CLOCK
+- Pixel desk clock showing the time, ticking over each minute.
+- Glows blue instead of orange at night.
+
+SESSION STATS
+- 5H and 7D: your 5-hour and 7-day usage limits as glowing bars with percents.
+    0-40%    green
+    40-70%   ink (black, or light at night)
+    70-90%   yellow
+    90-95%   red
+    95-100%  red, pulsing
+- SESSION: what this session has cost so far.
+- CTX: how full the context window is, as a bar split by category
+  (messages blue, system tools orange, MCP tools green, other grey, buffer pale).
+  Estimated before the first reply so it always shows.
+- HIT: the prompt cache hit rate of the last reply.
+- TOK/S: output speed of the last reply.
+- CACHE: minutes left before the prompt cache goes cold (1 hour after a reply).
+    Frost creeps over the digits in the last 10 minutes; frozen at 0.
+    Greyed out while a turn is running (the turn refreshes it anyway).
+- STATUS: one word for what Claude is doing, a dot, and the turn's elapsed time.
+- Stats update live during a turn (at most every 4 seconds) and on every reply.
+- Every chip shows from the start (dashes until measured) and keeps a fixed
+  width, so the band never jumps around.
+- Limits and each session's last reply, hit rate and speed are remembered, so
+  a resumed session opens with them instead of blanks.
+
+STATUS WORDS
+- While working: Thinking, Replying, Drafting, Compacting, Reading, Editing,
+  Writing, Running, Searching, Finding, Fetching, Browsing, Delegating,
+  Spawning, Asking, Planning, Remembering, Publishing, Scheduling, Messaging,
+  Watching, Loading tools, Wrapping up, Using.
+- While idle, by time of day:
+    Dawn         Stirring
+    Morning      Brewing
+    Late morning Ready
+    Midday       Lunching
+    Afternoon    Lounging
+    Golden hour  Basking
+    Dusk         Unwinding
+    Evening      Drowsy
+    Night        Sleeping
+
+CLAWD'S FORMS
+- Idle while waiting; LookAround every random 10-20 seconds by day.
+- Thinking from the moment you send a message and between tools.
+- One form per tool while it runs:
+    Typing      Edit, Write, NotebookEdit
+    Computer    Bash, PowerShell, Monitor
+    Searching / Busy (picked at random)   Read, Grep, Glob, and any other tool
+    Fetching    WebSearch, WebFetch, browser tools
+    Delegating  Agent, SendMessage, start_session
+    Asking      AskUserQuestion
+    Skill       Skill
+- Oops when a tool call errors.
+- Finishing a turn, looped whole for at least 10 seconds:
+    Done     a normal turn
+    BigDone  a turn over 60 seconds
+    Sad      an interrupted turn
+- Asleep (dimmed) at night.
+
+THE SKY BY DAY (05:30 - 23:15, eight periods of 2h13m)
+- Each period tints the band and draws its own sky beside Clawd.
+- The sun crosses one arc: rising out of a haze low on the left at dawn,
+  highest at midday, sinking into haze low on the right at dusk.
+- Fuzzy clouds drift through, lit for the hour, fading at the edges.
+    Dawn         05:30  peach      pink cloud, last stars fading, hot-air balloon rising
+    Morning      07:44  cream      white cloud, two birds, paper plane looping
+    Late morning 09:57  near-white clouds at two depths, kite on a string Clawd holds
+    Midday       12:10  default    plane with a fading contrail, 3D monarch butterfly
+    Afternoon    14:23  yellowish  three fat clouds, dandelion seeds drifting
+    Golden hour  16:36  amber      gold-lit cloud, a V of five geese heading home
+    Dusk         18:49  orange     rose cloud, first stars, sky lanterns rising
+    Evening      21:02  indigo     full moon low on the left, stars, two z's
+
+THE SKY BY NIGHT (23:15 - 05:30)
+- The band goes dark whatever the system theme; stats and Clawd dim.
+- Glowing crescent moon, twinkling four-point stars, three z's drifting up.
+- Comets with glowing heads, dusty foggy tails and faint ion tails, gliding
+  top-left to bottom-right on random passes, fading out at the edges.
+
+COMMANDS
+- /keepwarm: re-sends the conversation so the prompt cache stays warm another
+  hour. Plays a fire glow on CACHE, or a thaw if it was frosting over.
+  Declines if the cache has already gone cold.
+- /ctxdebug: temporary; prints what the session reports about context.
