@@ -4,7 +4,7 @@ import type { Engine, Register } from 'claude-code'
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, fade, forceDark, isNight, sleepSvg, statsSvg } from './design'
+import { BAR_HEIGHT, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg } from './design'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
 
 // While idle, Clawd stands still and looks around once every this many milliseconds.
@@ -94,9 +94,9 @@ let tools = 0
 // Stats measured during a turn, shown once it ends: each change reloads the stats drawing and
 // its fonts, which flickers if it happens mid-turn.
 let pending: { cost?: string; limit?: number; week?: number; context?: number; hit?: number; tps?: number } = {}
-// Every Clawd form shown so far: each stays mounted and hidden, so switching never reloads one.
-const seen = new Set<string>(['Idle'])
-
+// Mid-turn, stats still show up this often at most, which keeps the redraw flicker down.
+const LIVE_MS = 4000
+let lastFlush = 0
 // Whether Clawd was asleep at the last drawing, and when that last changed, so the dimming fades.
 let wasAsleep: boolean | undefined
 let sleepChangedAt = 0
@@ -128,6 +128,7 @@ async function restore($: Engine, startedAt: number) {
 }
 
 async function flushStats($: Engine) {
+  lastFlush = Date.now()
   const { cost: c, limit: l, week: w, context: x } = pending
   if (c !== undefined && (await read($, cost)) !== c) await update($, cost, () => c)
   if (l !== undefined && (await read($, limit)) !== l) await update($, limit, () => l)
@@ -159,7 +160,6 @@ async function refreshParts($: Engine) {
 }
 
 function show($: Engine, name: string) {
-  seen.add(name)
   return update($, form, () => name)
 }
 
@@ -179,6 +179,7 @@ export const register: Register = on => {
   pending = {}
 
   on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'ctxdebug', description: 'TEMP: show what the session reports about context' })
     await $.command.register({ name: 'keepwarm', description: 'Re-send this conversation so the prompt cache stays warm for another hour' })
     show($, 'Idle')
     await update($, doing, () => '')
@@ -222,7 +223,7 @@ export const register: Register = on => {
     const sevenDay = e.rateLimits.find(r => r.kind === 'seven_day')
     if (sevenDay) pending.week = Math.round(sevenDay.percentUsed)
     if (e.context.percent !== undefined) pending.context = Math.round(e.context.percent)
-    if (!isWorking) await flushStats($)
+    if (!isWorking || Date.now() - lastFlush > LIVE_MS) await flushStats($)
 
     return next(e)
   })
@@ -258,6 +259,7 @@ export const register: Register = on => {
       if (input) pending.hit = Math.round((100 * u.cache_read_input_tokens) / input)
       const seconds = (Date.now() - started) / 1000
       if (u.output_tokens && seconds > 0) pending.tps = Math.round(u.output_tokens / seconds)
+      if (Date.now() - lastFlush > LIVE_MS) await flushStats($)
     }
 
     return result
@@ -285,6 +287,12 @@ export const register: Register = on => {
     })
     const kept = r.usage ? Math.round(r.usage.cache_read_input_tokens / 1000) : 0
     return { text: `Cache kept warm: ${kept}k tokens, good for another 60m.` }
+  })
+
+  on('command.run', { command: 'ctxdebug' }, async $ => {
+    const u = await $.session.usage({ breakdown: 'summary' })
+    const b = u.context.breakdown
+    return { text: JSON.stringify({ tokens: u.context.tokens, window: u.context.window, percent: u.context.percent, atom: await read($, context), raw: b?.rawMaxTokens, cats: b?.categories.map(c => `${c.name}:${c.kind}:${c.tokens}`) }) }
   })
 
   on('session.compact', async ($, e, next) => {
@@ -336,12 +344,10 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) {
-      return next(e)
-    }
-
+    // The bar draws through surveys too, so they no longer take it away.
     if (e.surface === 'desktop') {
       const { Box, Svg } = $.ui.resolve(e)
+      try {
       const name = await read($, form)
       const now = Date.now()
       const clock = clockSvg((await read($, time)) || now)
@@ -383,22 +389,34 @@ export const register: Register = on => {
         tps: speed >= 0 ? speed : undefined,
       })
 
+      // By day the band takes the hour's tint and sky; its drawings keep the colours that suit the tint.
+      const period = periodAt(now)
+      const tone = period?.dark ? forceDark : forceLight
+      const bg = period?.bg ?? NIGHT_BG
+
       return (
-        <Box flexDirection="row" justifyContent="space-between" alignItems="center" {...(night ? { backgroundColor: NIGHT_BG, borderStyle: 'round', borderColor: NIGHT_BG, padding: 'xs' as const } : { paddingRight: 2 })}>
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
           <Box flexDirection="row" alignItems="center" gap={1}>
-            <Svg source={night ? sleepyClock(forceDark(clock.source)) : clock.source} alt="Clock" width={clock.width} height={clock.height} />
-            <Svg source={night ? dim(forceDark(stats.source), 0.6) : stats.source} alt={`Session stats. Status: ${label ? verb : 'Idle'}`} width={stats.width} height={stats.height} />
+            <Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} />
+            <Svg source={night ? dim(forceDark(stats.source), 0.6) : tone(stats.source)} alt={`Session stats. Status: ${label ? verb : 'Idle'}`} width={stats.width} height={stats.height} />
           </Box>
           <Box flexDirection="row" alignItems="center" gap={2}>
-            {night && <Svg source={sleepSvg().source} alt="Clawd is asleep" width={SLEEP_W} height={BAR_HEIGHT} />}
-            {FORMS.Idle && [...seen].map(f => (
-              <Box key={`clawd-${f}`} display={f === name ? 'flex' : 'none'}>
-                <Svg source={night ? dim(FORMS[f] ?? FORMS.Idle, 0.8) : (FORMS[f] ?? FORMS.Idle)} alt={`Clawd: ${f}`} width={CLAWD_W} height={BAR_HEIGHT} isInteractive />
-              </Box>
-            ))}
+            <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />
+            {/* Only the current form is mounted: each is an animated sandboxed frame, and keeping every
+                form seen mounted and hidden piled them up until the desktop stopped repainting the band. */}
+            <Svg source={night ? dim(FORMS[name] ?? FORMS.Idle, 0.8) : (FORMS[name] ?? FORMS.Idle)} alt={`Clawd: ${name}`} width={CLAWD_W} height={BAR_HEIGHT} isInteractive />
           </Box>
         </Box>
       )
+      } catch (err) {
+        // A failed drawing must not take the bar away: keep a plain Clawd and note why.
+        await $.store.set('lastRenderError', `${new Date().toISOString()} ${String(err)}`).catch(() => {})
+        return (
+          <Box flexDirection="row" justifyContent="flex-end" paddingRight={2}>
+            <Svg source={FORMS.Idle} alt="Clawd" width={CLAWD_W} height={BAR_HEIGHT} />
+          </Box>
+        )
+      }
     }
 
     if (e.surface !== 'terminal' || e.props.maxRows < TEXT.length) {

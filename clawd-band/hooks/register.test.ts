@@ -20,7 +20,7 @@ withClawd('desktop: Clawd stands still when idle', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
   const [left, right] = tree.children
-  const clawd = right.children[right.children.length - 1].children[0]
+  const clawd = right.children[right.children.length - 1]
   expect(clawd.props.alt).toBe('Clawd: Idle')
   expect(clawd.props.source).not.toContain('<animate')
   expect(left.children[0].props.alt).toBe('Clock')
@@ -69,7 +69,7 @@ withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
   const right = tree.children[1]
-  const clawd = right.children[right.children.length - 1].children[0]
+  const clawd = right.children[right.children.length - 1]
   expect(clawd.props.height).toBe(40)
 })
 
@@ -87,7 +87,7 @@ test('stats: the session chip and the bars do not overlap', async () => {
   expect(new Set(xs).size).toBeGreaterThan(1)
 })
 
-withClawd('desktop: a form change keeps the earlier form mounted, hidden', async ($, on) => {
+withClawd('desktop: only the current form is mounted', async ($, on) => {
   let tree: any
   on('ui.render', pass)
   on('tool.call', async () => {
@@ -95,10 +95,8 @@ withClawd('desktop: a form change keeps the earlier form mounted, hidden', async
     return { result: 'ok', text: 'ok' } as any
   })
   await $.tool.call({ tool: 'Edit', file_path: 'a.txt', old_string: 'a', new_string: 'b' } as any)
-  const forms = tree.children[1].children.filter((c: any) => String(c.key ?? c.props?.key ?? '').startsWith('clawd-'))
-  const shown = forms.filter((b: any) => b.props.display === 'flex').map((b: any) => b.children[0].props.alt)
-  expect(forms.length).toBeGreaterThan(1)
-  expect(shown).toEqual(['Clawd: Typing'])
+  const forms = JSON.stringify(tree).match(/Clawd: \w+/g)
+  expect(forms).toEqual(['Clawd: Typing'])
 })
 
 test('desktop: plan updates and memory writes get their own statuses', async ($, on) => {
@@ -177,4 +175,17 @@ test('night: dimming fades in once, then holds', async () => {
   expect(fade(svg, 1, 0.6, 0.2)).toContain('<animate attributeName="opacity" values="1;0.6"')
   expect(fade(svg, 1, 0.6, 5)).toBe('<svg opacity="0.6" xmlns="x" width="1"><rect/></svg>')
   expect(fade(svg, 0.6, 1, 5)).toBe(svg)
+})
+
+test('desktop: CTX shows before the first reply, estimated from the breakdown', async ($, on) => {
+  mock.store(on, {})
+  on('ui.render', pass)
+  on('session.start', async (_$: any, e: any) => ({ cwd: e.cwd }))
+  on('command.register' as any, async () => ({ value: undefined }) as any)
+  const breakdown = { rawMaxTokens: 200000, categories: [{ name: 'System prompt', kind: 'used', tokens: 20000 }] }
+  on('session.usage' as any, async () => ({ value: { startedAt: 1, context: { window: 1000000, breakdown }, rateLimits: [] } }) as any)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true } as any)
+  await new Promise(r => setTimeout(r, 50))
+  const json = JSON.stringify(await $.ui.render(band('desktop')))
+  expect(json).toContain('>CTX<')
 })
