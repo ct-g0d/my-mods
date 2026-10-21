@@ -7,8 +7,10 @@ import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
 import { BAR_HEIGHT, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg } from './design'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
 
-// While idle, Clawd stands still and looks around once every this many milliseconds.
-const IDLE_LOOK_MS = 45000
+// While idle, Clawd stands still and looks around at a random moment between these many milliseconds.
+const IDLE_LOOK_MS = [10000, 20000]
+// A finishing form loops whole for at least this long.
+const FINISH_MS = 10000
 // A turn longer than this ends with a breakdance instead of a hop.
 const BIG_TURN_MS = 60000
 // How long the prompt cache stays warm after a reply (an hour on a subscription).
@@ -46,16 +48,19 @@ const BUFFER = '#C9C7BF'
 
 const TEXT = [' ▐▛███▜▌', '▝▜█████▛▘', '  ▘▘ ▝▝']
 
+// Searching and Busy share their work: either plays, picked at random each time.
+const busy = () => (Math.random() < 0.5 ? 'Searching' : 'Busy')
+
 // Which form a tool call plays, by tool name.
 const toolForm = (tool: string): string => {
   if (/^(Edit|Write|NotebookEdit)$/.test(tool)) return 'Typing'
   if (/^(Bash|PowerShell|Monitor)$/.test(tool)) return 'Computer'
-  if (/^(Read|Grep|Glob)$/.test(tool)) return 'Searching'
+  if (/^(Read|Grep|Glob)$/.test(tool)) return busy()
   if (/^(WebSearch|WebFetch)$/.test(tool) || /Browser|chrome/i.test(tool)) return 'Fetching'
   if (/^(Agent|SendMessage)$/.test(tool) || /start_session/.test(tool)) return 'Delegating'
   if (tool === 'AskUserQuestion') return 'Asking'
   if (tool === 'Skill') return 'Skill'
-  return 'Busy'
+  return busy()
 }
 
 const short = (text: string, max = 28) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
@@ -163,13 +168,27 @@ function show($: Engine, name: string) {
   return update($, form, () => name)
 }
 
-// Plays `name` once, then goes back to whatever fits the current state.
-async function react($: Engine, name: string) {
+// Plays `name` `reps` times through, then goes back to whatever fits the current state.
+async function react($: Engine, name: string, reps = 1) {
   await show($, name)
-  $.clock.after(DURATION_MS[name] ?? 3000, async () => {
+  $.clock.after((DURATION_MS[name] ?? 3000) * reps, async () => {
     if ((await read($, form)) === name) {
-      show($, isWorking ? (tools > 0 ? 'Busy' : 'Thinking') : 'Idle')
+      show($, isWorking ? (tools > 0 ? busy() : 'Thinking') : 'Idle')
     }
+  })
+}
+
+// Plays a finishing form for FINISH_MS, rounded up to whole loops: one loop if it is longer already.
+const finish = ($: Engine, name: string) => react($, name, Math.ceil(FINISH_MS / (DURATION_MS[name] ?? 3000)))
+
+// Looks around after a random wait, if Clawd is still idle by day, then waits again.
+function lookLater($: Engine) {
+  const [min, max] = IDLE_LOOK_MS
+  $.clock.after(min + Math.random() * (max - min), async () => {
+    if (!isWorking && !isNight(Date.now()) && (await read($, form)) === 'Idle') {
+      react($, 'LookAround')
+    }
+    lookLater($)
   })
 }
 
@@ -207,11 +226,7 @@ export const register: Register = on => {
         await update($, time, () => now)
       }
     })
-    $.clock.every(IDLE_LOOK_MS, async () => {
-      if (!isWorking && !isNight(Date.now()) && (await read($, form)) === 'Idle') {
-        react($, 'LookAround')
-      }
-    })
+    lookLater($)
 
     return next(e)
   })
@@ -335,7 +350,7 @@ export const register: Register = on => {
       await update($, doing, () => '')
       await update($, turnStart, () => 0)
       await update($, lastReply, () => Date.now())
-      react($, e.isAborted ? 'Sad' : e.durationMs > BIG_TURN_MS ? 'BigDone' : 'Done')
+      finish($, e.isAborted ? 'Sad' : e.durationMs > BIG_TURN_MS ? 'BigDone' : 'Done')
       await flushStats($)
       await save($)
       }
