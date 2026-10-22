@@ -4,7 +4,7 @@ import type { EngineInterface as Engine, Register, SessionMeasureInput } from 'c
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
+import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, SWAP_S, WARM_S, crossfade, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
 import type { Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
@@ -127,6 +127,18 @@ let settle: { cancel: () => void } | null = null
 // The status drawing and what it was built from: rebuilt only when the word or the turn changes, since
 // its turn timer counts up on its own.
 let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg('', false) }
+// Each drawing's last markup and what is shown for it: a changed word or number fades out and the new one
+// in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
+let swaps: Record<string, { raw: string; shown: string; at: number }> = {}
+function swapped(name: string, raw: string, now: number): string {
+  const s = swaps[name]
+  if (!s) swaps[name] = { raw, shown: raw, at: 0 }
+  else if (raw !== s.raw) {
+    const shown = crossfade(s.raw, raw)
+    swaps[name] = { raw, shown, at: shown === raw ? 0 : now }
+  } else if (s.at && now - s.at >= SWAP_S * 1000) swaps[name] = { raw, shown: raw, at: 0 }
+  return swaps[name].shown
+}
 
 type Saved = { lastReply?: number; hit?: number; tps?: number }
 
@@ -227,6 +239,7 @@ export const register: Register = on => {
   isWorking = false
   tools = 0
   pending = {}
+  swaps = {}
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ctxdebug', description: 'TEMP: show what the session reports about context' })
@@ -428,10 +441,12 @@ export const register: Register = on => {
         status = { key: statusKey, drawing: statusSvg(state, working, startedAt && working ? Math.floor((now - startedAt) / 1000) : undefined) }
       }
       const word = status.drawing
+      const wordSource = swapped('status', word.source, now)
       const stats = statsSvg({
         working,
         cacheMinutes: cacheLeft,
-        warm: warmedAt && now - warmedAt < WARM_S * 1000 ? { kind: warmedKind, ago: (now - warmedAt) / 1000 } : undefined,
+        // Its markup holds still while it plays, like the fades, so the stats are not rebuilt on every render.
+        warm: warmedAt && now - warmedAt < WARM_S * 1000 ? { kind: warmedKind, ago: 0 } : undefined,
         cost: spent || undefined,
         limit: used >= 0 ? used : undefined,
         week: weekly >= 0 ? weekly : undefined,
@@ -440,6 +455,8 @@ export const register: Register = on => {
         hit: rate >= 0 ? rate : undefined,
         tps: speed >= 0 ? speed : undefined,
       })
+
+      const statsSource = swapped('stats', stats.source, now)
 
       // By day the band takes the hour's tint and sky; its drawings keep the colours that suit the tint.
       const period = periodAt(now)
@@ -451,8 +468,8 @@ export const register: Register = on => {
           <Box flexDirection="row" alignItems="center" gap={1}>
             <Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} />
             <Box flexDirection="row" alignItems="center">
-              <Svg source={night ? dim(forceDark(stats.source), 0.6) : tone(stats.source)} alt="Session stats" width={stats.width} height={stats.height} />
-              <Svg source={night ? dim(forceDark(word.source), 0.6) : tone(word.source)} alt={`Status: ${state}`} width={word.width} height={word.height} />
+              <Svg source={night ? dim(forceDark(statsSource), 0.6) : tone(statsSource)} alt="Session stats" width={stats.width} height={stats.height} />
+              <Svg source={night ? dim(forceDark(wordSource), 0.6) : tone(wordSource)} alt={`Status: ${state}`} width={word.width} height={word.height} />
             </Box>
           </Box>
           <Box flexDirection="row" alignItems="center" gap={2}>

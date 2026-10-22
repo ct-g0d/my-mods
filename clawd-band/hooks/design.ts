@@ -421,6 +421,35 @@ export const forceLight = (source: string) => source.replace('@media (prefers-co
 // How long dimming for sleep, or brightening on waking, takes, in seconds.
 export const FADE_S = 0.8
 
+// How long a changed word or number takes to fade out and the new one in, in seconds.
+export const SWAP_S = 0.5
+
+const TEXT_EL = /<text\b([^>]*)>([\s\S]*?)<\/text>/g
+// A text's place in the drawing, so the same chip's value is found again after a change.
+const placeOf = (attrs: string) => ['x', 'y', 'class'].map(a => new RegExp(`\\b${a}="([^"]*)"`).exec(attrs)?.[1] ?? '').join('|')
+const words = (inner: string) => inner.replace(/<[^>]*>/g, '')
+// The old text fades out over the first half of SWAP_S and the new one in over the second. Each rests at
+// its end state, so without animation the new text simply shows.
+const fadeOut = (el: string) => `<g opacity="0"><animate attributeName="opacity" values="1;0;0" keyTimes="0;.5;1" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
+const fadeIn = (el: string) => `<g><animate attributeName="opacity" values="0;0;1" keyTimes="0;.5;1" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
+
+// `next` with each text whose words differ from `prev` at its place fading: the old out, then the new in.
+// Texts that kept their words stay as they are.
+export function crossfade(prev: string, next: string): string {
+  const before = new Map<string, { el: string; words: string }>()
+  for (const m of prev.matchAll(TEXT_EL)) before.set(placeOf(m[1]), { el: m[0], words: words(m[2]) })
+  const seen = new Set<string>()
+  const out = next.replace(TEXT_EL, (el, attrs: string, inner: string) => {
+    const place = placeOf(attrs)
+    seen.add(place)
+    const old = before.get(place)
+    if (old?.words === words(inner)) return el
+    return (old ? fadeOut(old.el) : '') + fadeIn(el)
+  })
+  const gone = [...before].filter(([place]) => !seen.has(place)).map(([, old]) => fadeOut(old.el)).join('')
+  return gone ? out.replace(/<\/svg>\s*$/, `${gone}</svg>`) : out
+}
+
 // A drawing at `to` opacity, easing there from `from` when it changed `ago` seconds back.
 export function fade(source: string, from: number, to: number, ago: number): string {
   if (ago >= FADE_S) return to === 1 ? source : source.replace('<svg ', `<svg opacity="${to}" `)

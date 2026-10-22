@@ -1,5 +1,5 @@
 import { FORMS } from './clawd-frames'
-import { DAY_PERIODS, fade, forceDark, isNight, periodAt, statsSvg, statusSvg } from './design'
+import { DAY_PERIODS, crossfade, fade, forceDark, isNight, periodAt, statsSvg, statusSvg } from './design'
 import { expect, mock, test } from 'claude-code/testing'
 
 // Clawd's tests run only where its artwork has been generated (see tools/gen.py).
@@ -251,9 +251,14 @@ test('stats: usage is read mid-turn, not only when the turn ends', async ($, on)
   on('session.usage' as any, async () => ({ value: { startedAt: 1, context: { window: 1000000 }, rateLimits: [], cost: { usd } } }) as any)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true } as any)
   await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' } } as any)
+  await $.ui.render(band('desktop'))
   usd = 4.2
   await clock.advance(2000)
-  expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain('$4.20')
+  const json = JSON.stringify(await $.ui.render(band('desktop')))
+  expect(json).toContain('$4.20')
+  // The old cost fades out as the new one fades in.
+  expect(json).toContain('$1.00')
+  expect(json).toContain('values=\\"1;0;0\\"')
 })
 
 // A turn ends with the cache back at 60m: CACHE glows, or thaws when it was chilling.
@@ -271,3 +276,16 @@ for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
     expect(json.includes('filter=\\"url(#cb-rime)\\"')).toBe(kind === 'thaw')
   })
 }
+
+test('stats: a changed word or number fades out and in; the rest stays put', async () => {
+  const a = statsSvg({ working: false, cacheMinutes: 45, cost: '$1.00' }).source
+  const b = statsSvg({ working: false, cacheMinutes: 45, cost: '$2.00' }).source
+  expect(crossfade(a, a)).toBe(a)
+  const faded = crossfade(a, b)
+  expect(faded).toContain('$1.00')
+  expect(faded).toContain('$2.00')
+  // Only the cost fades: one text out, one in.
+  expect(faded.match(/values="1;0;0"/g)!.length).toBe(1)
+  expect(faded.match(/values="0;0;1"/g)!.length).toBe(1)
+  expect(crossfade(statusSvg('Reading', true).source, statusSvg('Editing', true).source)).toContain('values="0;0;1"')
+})
