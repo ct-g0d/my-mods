@@ -1,4 +1,4 @@
-CLAWD BAND 1.8.1 - FEATURES
+CLAWD BAND 1.8.2 - FEATURES
 ===========================
 
 THE BAND
@@ -7,13 +7,15 @@ THE BAND
 - In a terminal, a small block-character Clawd instead.
 
 CLOCK
-- A different clock for each stage of the day, all in the same casing and
-  ticking over each minute:
-    Dawn                    mint casing, reflective LCD (12-hour)
-    Morning to Golden hour  cream casing, amber pixel digits (24-hour)
-    Dusk                    dark casing, thin white figures, seconds bar
-    Evening                 dark casing, teal vacuum-fluorescent (12-hour)
-    Night                   dark casing, red slanted LED bedside clock
+- Pixel desk clock showing the time, ticking over each minute.
+- Its casing, screen and digits drift through the day so the clock itself
+  says the time of day: rose at dawn, warm in the morning, bright white
+  at midday, straw then soft gold in the afternoon, coral at dusk and
+  indigo in the evening.
+- At night it is a bedside clock: red seven-segment digits in the same casing,
+  12-hour, the colon blinking each second.
+- Changing between the day and night clocks fades across over 3 seconds, the new
+  clock coming in over the old; it never blinks off between them.
 
 SESSION STATS
 - 5H and 7D: your 5-hour and 7-day usage limits as glowing bars with percents.

@@ -4,13 +4,13 @@ The Claude desktop app's animated Clawd, living in a band above the prompt box w
 
 ![The band at dawn, midday, evening and night](docs/band.png)
 
-Version **1.8.1**. The full feature list is in [FEATURES.txt](FEATURES.txt).
+Version **1.8.2**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 
 ## What's on the band
 
 **Left: the clock and stats.**
 
-- **Clock**: a different one for each stage of the day, all in the same casing: a mint LCD at dawn, the amber pixel desk clock from morning to the golden hour, thin white figures at dusk, teal vacuum-fluorescent digits in the evening, and a red LED bedside clock at night.
+- **Clock**: the pixel desk clock, its colours drifting with the hour: rose at dawn, warm through the morning, bright at midday, soft gold toward evening, coral at dusk and indigo in the evening. At night it becomes a red LED bedside clock.
 - **5H / 7D**: your 5-hour and 7-day usage limits, as glowing bars. The bar and its percent change colour as the limit fills:
 
   | Used | Colour |

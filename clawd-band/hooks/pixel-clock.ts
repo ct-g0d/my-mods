@@ -70,18 +70,19 @@ function countingDigit(x0: number, y0: number, count: number, step: number, at: 
 }
 
 // The desk clock's casing, screen and lit-pixel colours.
-const CASE_STYLE = `<style>:root{--rim:#B9B6AD;--top:#F4F2EC;--bot:#CFCBC1;--screen:#2A2620;--lit:#F2A65A}</style>`
+export type Tint = { rim: string; top: string; bot: string; screen: string; lit: string }
+export const DESK_TINT: Tint = { rim: '#B9B6AD', top: '#F4F2EC', bot: '#CFCBC1', screen: '#2A2620', lit: '#F2A65A' }
 
-const CASE_DEFS =
+const caseDefs = (c: Tint) =>
   `<defs>` +
-  `<linearGradient id="cb-case" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--top)"/><stop offset="1" style="stop-color:var(--bot)"/></linearGradient>` +
+  `<linearGradient id="cb-case" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c.top}"/><stop offset="1" stop-color="${c.bot}"/></linearGradient>` +
   `<linearGradient id="cb-glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".5" stop-color="#fff" stop-opacity=".04"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
   `<filter id="cb-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
   `</defs>`
 
 // HH:MM in the pixel font, lit amber on a recessed LCD
 // inside a bevelled desk-clock casing, with the unlit segments faintly behind them.
-export function deskClock(ms: number): { source: string; width: number; height: number } {
+export function deskClock(ms: number, tint = DESK_TINT): { source: string; width: number; height: number } {
   const text = clockText(ms)
   const dx = 10
   const dy = 10
@@ -98,15 +99,15 @@ export function deskClock(ms: number): { source: string; width: number; height: 
   return {
     source:
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">` +
-      CASE_STYLE + CASE_DEFS +
+      caseDefs(tint) +
       // Casing: a bevelled body with a dark rim and a bright top edge.
-      `<rect x=".5" y=".5" width="${width - 1}" height="${height - 1}" rx="8" fill="url(#cb-case)" style="stroke:var(--rim)"/>` +
+      `<rect x=".5" y=".5" width="${width - 1}" height="${height - 1}" rx="8" fill="url(#cb-case)" stroke="${tint.rim}"/>` +
       `<rect x="1.5" y="1.5" width="${width - 3}" height="${height - 3}" rx="7" fill="none" stroke="#fff" stroke-opacity=".35"/>` +
       // Screen: recessed, with a shadowed top lip.
-      `<rect x="5" y="5" width="${width - 10}" height="${height - 10}" rx="3.5" style="fill:var(--screen)"/>` +
+      `<rect x="5" y="5" width="${width - 10}" height="${height - 10}" rx="3.5" fill="${tint.screen}"/>` +
       `<rect x="5" y="5" width="${width - 10}" height="2" rx="1" fill="#000" fill-opacity=".35"/>` +
-      `<g shape-rendering="crispEdges" style="fill:var(--lit)" fill-opacity=".09">${ghost}</g>` +
-      `<g shape-rendering="crispEdges" style="fill:var(--lit)" filter="url(#cb-glow)">${lit}</g>` +
+      `<g shape-rendering="crispEdges" fill="${tint.lit}" fill-opacity=".09">${ghost}</g>` +
+      `<g shape-rendering="crispEdges" fill="${tint.lit}" filter="url(#cb-glow)">${lit}</g>` +
       // Glass glare over the top half of the screen.
       `<rect x="5" y="5" width="${width - 10}" height="${height - 10}" rx="3.5" fill="url(#cb-glass)"/>` +
       `</svg>`,

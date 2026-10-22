@@ -1,6 +1,6 @@
 import { FORMS } from './clawd-frames'
 import { DAY_PERIODS, changeOver, changes, crossfade, fade, forceDark, isNight, periodAt, settle, statsSvg, statusSvg } from './design'
-import { STAGE_LOOKS, clockSvg, lookAt } from './clocks'
+import { clockSvg, crossfadeClock, lookAt, tintAt } from './clocks'
 import { expect, mock, test } from 'claude-code/testing'
 
 // Clawd's tests run only where its artwork has been generated (see tools/gen.py).
@@ -100,22 +100,33 @@ test('desktop: the clock is the stage of the day\'s own, in the same 88 by 40 ca
   expect(clock.props.source).toContain('viewBox="0 0 88 40"')
 })
 
-test('clock: a look for each stage, from dawn to night, all the same size', () => {
+test('clock: the desk clock by day, its colours drifting with the hour, and the bedside clock at night', () => {
   const at = (h: number, m: number) => new Date(2026, 9, 22, h, m).getTime()
   // One time in each of the day's eight periods, then the night's.
   const stages = [at(6, 0), at(8, 0), at(10, 30), at(12, 30), at(15, 0), at(17, 0), at(19, 30), at(22, 0), at(2, 0)]
-  expect(stages.map(ms => lookAt(ms))).toEqual(STAGE_LOOKS)
-  expect(STAGE_LOOKS).toEqual(['lcd', 'desk', 'desk', 'desk', 'desk', 'desk', 'carbon', 'vfd', 'bedside'])
+  expect(stages.map(ms => lookAt(ms))).toEqual([...Array(8).fill('desk'), 'bedside'])
   for (const ms of stages) {
     const clock = clockSvg(ms)
     expect([clock.width, clock.height]).toEqual([88, 40])
     expect(clock.source).toContain('viewBox="0 0 88 40"')
   }
+  // The day's colours: each hour its own, easing from one period's tint to the next's.
+  const lits = stages.slice(0, 8).map(ms => tintAt(ms).lit)
+  expect(new Set(lits).size).toBe(8)
+  expect(tintAt(at(10, 30)).lit).not.toBe(tintAt(at(10, 50)).lit)
+  expect(clockSvg(at(12, 30)).source).toContain(`fill="${tintAt(at(12, 30)).lit}"`)
   // Night: the bedside clock, red segments with the colon blinking.
   const night = clockSvg(at(23, 47))
   expect(night.look).toBe('bedside')
   expect(night.source).toContain('#FF4A30')
   expect(night.source).toContain('repeatCount="indefinite"')
+  // One clock changing into the other fades the new over the old, each with its own ids, and a redraw carries on from where it was.
+  const across = crossfadeClock(clockSvg(at(22, 0)).source, night.source, 1)
+  expect(across).toContain('id="acb-case"')
+  expect(across).toContain('id="bcb-case"')
+  expect(across).not.toContain(' id="cb-case"')
+  expect(across).toContain('begin="-1.00s"')
+  expect(across.match(/<svg /g)!.length).toBe(1)
 })
 
 test('stats: the session chip and the bars do not overlap', async () => {

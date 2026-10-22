@@ -8,7 +8,7 @@ import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, changeOver,
 import type { Changes, Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockText, costText } from './pixel-clock'
-import { clockSvg } from './clocks'
+import { CLOCK_FADE_S, clockSvg, crossfadeClock } from './clocks'
 
 // A finishing form loops whole for at least this long.
 const FINISH_MS = 7000
@@ -116,6 +116,10 @@ let lastFlush = 0
 // Whether Clawd was asleep at the last drawing, and when that last changed, so the dimming fades.
 let wasAsleep: boolean | undefined
 let sleepChangedAt = 0
+// The clock last drawn, and the one it is fading across from when its look has just changed (day to night, night to day).
+let lastClock: { look: string; source: string } | undefined
+let clockFrom = ''
+let clockChangedAt = 0
 
 // This session's key in the store: its first launch, which stays the same when it is resumed.
 let sessionKey = ''
@@ -415,7 +419,11 @@ export const register: Register = on => {
       const name = await read($, form)
       const now = Date.now()
       const shownAt = (await read($, time)) || now
-      const clock = clockSvg(shownAt, now)
+      const drawn = clockSvg(shownAt, now)
+      if (lastClock && lastClock.look !== drawn.look) { clockFrom = lastClock.source; clockChangedAt = now }
+      lastClock = { look: drawn.look, source: drawn.source }
+      const clockAgo = (now - clockChangedAt) / 1000
+      const clock = clockFrom && clockAgo < CLOCK_FADE_S ? { ...drawn, source: crossfadeClock(clockFrom, drawn.source, clockAgo) } : drawn
       const spent = await read($, cost)
       const used = await read($, limit)
       const weekly = await read($, week)
