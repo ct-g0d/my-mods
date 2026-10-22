@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
-import type { Engine, Register } from 'claude-code'
+import type { EngineInterface as Engine, Register } from 'claude-code'
 
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
 import { BAR_HEIGHT, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg } from './design'
+import { coldUsd, duration, parseDuration, pingUsd, readWarm, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
 
 // While idle, Clawd stands still and looks around at a random moment between these many milliseconds.
@@ -33,6 +34,16 @@ const turnStart = atom({ plugin: 'clawd-band', key: 'turnStart' } as const, 0)
 const warmed = atom({ plugin: 'clawd-band', key: 'warmed' } as const, 0)
 // Which effect that /keepwarm plays: a fire glow when the cache was fine, a thaw when it was chilling.
 const warmKind = atom({ plugin: 'clawd-band', key: 'warmKind' } as const, 'glow' as 'glow' | 'thaw')
+// When /keepwarm's auto window ends; 0 while it is off. Kept in the session's state so a reload keeps it.
+const auto = atom({ plugin: 'clawd-band', key: 'auto' } as const, 0)
+
+// Auto keepwarm pings this long after the last reply, ten minutes before the cache would go cold.
+const PING_AFTER_MS = 50 * 60 * 1000
+const MAX_RETRIES = 3
+// A cold send over this many tokens of context is stopped once with its price.
+const GUARD_TOKENS = 50000
+// Prompts no person sent, so nobody could send them again after the guard stopped one.
+const UNATTENDED = new Set(['task-notification', 'scheduled-trigger', 'peer', 'peer-send-message', 'projects-relay', 'coordinator', 'observer', 'observer-activity'])
 
 // Clawd scaled to the chips' height so the row lines up.
 const CLAWD_W = (WIDTH * BAR_HEIGHT) / HEIGHT
@@ -108,6 +119,93 @@ let sleepChangedAt = 0
 
 // This session's key in the store: its first launch, which stays the same when it is resumed.
 let sessionKey = ''
+
+// The auto ping's timer, whether a ping is out, and how many times a busy API has been retried.
+let timer: { cancel: () => void } | null = null
+let inFlight = false
+let retries = 0
+// After compaction a fork would re-write the new context, so auto waits for the next reply.
+let compacted = false
+// The reply whose cold cache the guard last warned about; the next send after it goes through.
+let ackedAt = 0
+
+type Warmed = { ok: boolean; text: string; retry?: boolean; waitForTurn?: boolean }
+
+// Forks the conversation so the API reads it from the prompt cache, keeping it warm another hour.
+// Says what the ping read and cost, and plays the glow, or the thaw when the cache was chilling.
+async function warm($: Engine): Promise<Warmed> {
+  const repliedAt = await read($, lastReply)
+  const left = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - Date.now()) / 60000) : null
+  inFlight = true
+  const r = await $.model.fork({ prompt: 'Reply with just: ok' }).finally(() => (inFlight = false))
+  if (!r.isAnswered && r.reason === 'nothing-to-fork') return { ok: false, waitForTurn: true, text: 'Nothing to keep warm yet: no reply in this conversation.' }
+  if (!r.isAnswered && r.reason === 'api-error') {
+    return { ok: false, retry: r.status === null || r.status === 429 || r.status >= 500, text: `Could not warm the cache: API error${r.status === null ? ', no response' : ` ${r.status}`}.` }
+  }
+  if (!r.isAnswered && r.reason === 'aborted') return { ok: false, text: 'Could not warm the cache: the ping was interrupted.' }
+  // Answered, or answered with no text: either way the request went through the cache.
+  const u = r.usage
+  const model = await $.session.model()
+  const now = Date.now()
+  await update($, lastReply, () => now)
+  await save($)
+  if (!readWarm(u)) return { ok: false, text: `The cache was already gone: the ping re-wrote ${tok(u.cache_creation_input_tokens)} tokens for ${usd(pingUsd(model, u))}.` }
+  await update($, warmKind, () => (left !== null && left <= ICE_MINUTES ? 'thaw' : 'glow'))
+  await update($, warmed, () => now)
+  $.clock.after(WARM_S * 1000 + 100, async () => {
+    if ((await read($, warmed)) === now) await update($, warmed, () => 0)
+  })
+  const kept = u.cache_read_input_tokens
+  return { ok: true, text: `Cache kept warm: read ${tok(kept)} tokens for ${usd(pingUsd(model, u))} (a cold re-write would be ${usd(coldUsd(model, kept))}), good for another 60m.` }
+}
+
+// Sets the auto ping for PING_AFTER_MS after the last reply, or `wait` from now for a retry, while
+// the window lasts. A turn running, a cold cache or a compaction leaves it to the next turn's end.
+async function arm($: Engine, wait?: number) {
+  timer?.cancel()
+  timer = null
+  if (wait === undefined) retries = 0
+  const until = await read($, auto)
+  const now = Date.now()
+  if (!until) return
+  if (now >= until) return update($, auto, () => 0)
+  const repliedAt = await read($, lastReply)
+  if (!repliedAt || compacted || isWorking || now >= repliedAt + CACHE_TTL_MS) return
+  const at = Math.min(until, wait !== undefined ? now + wait : repliedAt + PING_AFTER_MS)
+  timer = $.clock.after(Math.max(1000, at - now), () => void autoPing($))
+}
+
+async function autoPing($: Engine) {
+  timer = null
+  if (isWorking || inFlight) return
+  const until = await read($, auto)
+  if (!until || Date.now() >= until) return arm($)
+  const repliedAt = await read($, lastReply)
+  const r = await warm($)
+  if (r.ok) return arm($)
+  if (r.waitForTurn) return
+  if (r.retry && retries < MAX_RETRIES) {
+    const wait = 60000 * 2 ** retries
+    // Only while a retry can still land a minute before the cache goes cold.
+    if (Date.now() + wait < repliedAt + CACHE_TTL_MS - 60000) {
+      retries++
+      return arm($, wait)
+    }
+  }
+  await update($, auto, () => 0)
+  $.ui.toast(`Auto keepwarm stopped. ${r.text}`)
+}
+
+async function autoStatus($: Engine): Promise<string> {
+  const until = await read($, auto)
+  const now = Date.now()
+  if (!until || now >= until) return 'Auto keepwarm is off. /keepwarm 6h (or 90m) turns it on; bare /keepwarm warms the cache once now.'
+  const repliedAt = await read($, lastReply)
+  const next = !repliedAt || compacted ? 'waiting for the next reply'
+    : now >= repliedAt + CACHE_TTL_MS ? 'cold now, starts after the next reply'
+    : `next ping in ${duration(Math.min(until, repliedAt + PING_AFTER_MS) - now)}`
+  return `Auto keepwarm on for ${duration(until - now)} more, ${next}.`
+}
 
 type Saved = { lastReply?: number; hit?: number; tps?: number }
 
@@ -199,7 +297,11 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ctxdebug', description: 'TEMP: show what the session reports about context' })
-    await $.command.register({ name: 'keepwarm', description: 'Re-send this conversation so the prompt cache stays warm for another hour' })
+    await $.command.register({
+      name: 'keepwarm',
+      description: 'Keep the prompt cache warm: bare warms it once now; 6h or 90m keeps it warm through breaks; off; status',
+      argumentHint: '[6h | 90m | off | status]',
+    })
     show($, 'Idle')
     await update($, doing, () => '')
     await update($, time, () => Date.now())
@@ -219,6 +321,8 @@ export const register: Register = on => {
       await update($, context, () => Math.round(usage.context.percent!))
     }
     await restore($, usage.startedAt)
+    // A reload keeps the auto window in the session's state but drops its timer.
+    await arm($)
     refreshParts($)
     $.clock.every(1000, async () => {
       const now = Date.now()
@@ -244,7 +348,22 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    // The cold-send guard: a person's message onto a cold cache is stopped once with what it will pay.
+    if (e.origin.kind !== 'plugin' && !UNATTENDED.has(e.origin.kind) && typeof e.text === 'string' && !e.text.trimStart().startsWith('/')) {
+      const repliedAt = await read($, lastReply)
+      const coldFor = Date.now() - repliedAt - CACHE_TTL_MS
+      if (repliedAt && coldFor >= 0 && ackedAt !== repliedAt) {
+        const tokens = (await $.session.usage()).context.tokens ?? 0
+        if (tokens >= GUARD_TOKENS) {
+          ackedAt = repliedAt
+          const price = usd(coldUsd(await $.session.model(), tokens))
+          return { drop: `The prompt cache went cold ${duration(coldFor)} ago. Sending this re-writes about ${tok(tokens)} tokens for ${price}. Send it again to pay it, or /clear and start from a note.` }
+        }
+      }
+    }
     isWorking = true
+    timer?.cancel()
+    timer = null
     tools = 0
     await update($, turnStart, () => Date.now())
     await update($, doing, () => 'Thinking|')
@@ -280,28 +399,32 @@ export const register: Register = on => {
     return result
   })
 
-  // Re-sends the conversation as the main thread last sent it, which the API serves from the
-  // prompt cache and so keeps warm for another hour. Once the cache has gone cold there is nothing to
-  // keep: warming would pay for the same rebuild the next message pays anyway, so it declines.
-  on('command.run', { command: 'keepwarm' }, async $ => {
+  // Bare, warms the cache once now; with a window such as 6h, keeps it warm through every break in
+  // it. Once the cache has gone cold there is nothing to keep: warming would pay for the same rebuild
+  // the next message pays anyway, so a one-off declines and a window waits for the next reply.
+  on('command.run', { command: 'keepwarm' }, async ($, e) => {
+    const word = String(e.args ?? '').trim()
+    if (word === 'off') {
+      timer?.cancel()
+      timer = null
+      await update($, auto, () => 0)
+      return { text: 'Auto keepwarm is off.' }
+    }
+    if (word === 'status') return { text: await autoStatus($) }
+    if (word) {
+      const ms = parseDuration(word)
+      if (!ms) return { text: '/keepwarm takes a window such as 6h or 90m, off, or status; bare, it warms the cache once now.' }
+      await update($, auto, () => Date.now() + ms)
+      await arm($)
+      return { text: `Auto keepwarm on for ${duration(ms)}: a ping 50m after each reply keeps the cache read, not re-written. ${await autoStatus($)}` }
+    }
     const repliedAt = await read($, lastReply)
-    const left = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - Date.now()) / 60000) : null
-    if (left !== null && left <= 0) {
+    if (repliedAt && Date.now() >= repliedAt + CACHE_TTL_MS) {
       return { text: 'The cache has already gone cold. Your next message rebuilds it anyway, so warming it now would only pay for that rebuild early.' }
     }
-    const r = await $.model.fork({ prompt: 'Reply with just: ok' })
-    if (!r.isAnswered && r.reason === 'nothing-to-fork') return { text: 'Nothing to keep warm yet: no reply in this conversation.' }
-    if (!r.isAnswered && r.reason === 'api-error') return { text: `Could not warm the cache: API error ${r.status}.` }
-    const now = Date.now()
-    await update($, warmKind, () => (left !== null && left <= ICE_MINUTES ? 'thaw' : 'glow'))
-    await update($, lastReply, () => now)
-    await update($, warmed, () => now)
-    await save($)
-    $.clock.after(WARM_S * 1000 + 100, async () => {
-      if ((await read($, warmed)) === now) await update($, warmed, () => 0)
-    })
-    const kept = r.usage ? Math.round(r.usage.cache_read_input_tokens / 1000) : 0
-    return { text: `Cache kept warm: ${kept}k tokens, good for another 60m.` }
+    const r = await warm($)
+    await arm($)
+    return { text: r.text }
   })
 
   on('command.run', { command: 'ctxdebug' }, async $ => {
@@ -311,6 +434,11 @@ export const register: Register = on => {
   })
 
   on('session.compact', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      compacted = true
+      timer?.cancel()
+      timer = null
+    }
     const before = await read($, doing)
     await update($, doing, () => 'Compacting|')
     try {
@@ -353,6 +481,9 @@ export const register: Register = on => {
       finish($, e.isAborted ? 'Sad' : e.durationMs > BIG_TURN_MS ? 'BigDone' : 'Done')
       await flushStats($)
       await save($)
+      compacted = false
+      ackedAt = 0
+      await arm($)
       }
 
     return next(e)
@@ -378,6 +509,7 @@ export const register: Register = on => {
       const warmedKind = await read($, warmKind)
       const startedAt = await read($, turnStart)
       const label = await read($, doing)
+      const autoUntil = await read($, auto)
 
       const cacheLeft = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - now) / 60000) : null
       const verb = label.split('|')[0]
@@ -395,6 +527,7 @@ export const register: Register = on => {
         elapsed: startedAt && working ? Math.floor((now - startedAt) / 1000) : undefined,
         cacheMinutes: cacheLeft,
         warm: warmedAt && now - warmedAt < WARM_S * 1000 ? { kind: warmedKind, ago: (now - warmedAt) / 1000 } : undefined,
+        auto: autoUntil > now,
         cost: spent || undefined,
         limit: used >= 0 ? used : undefined,
         week: weekly >= 0 ? weekly : undefined,

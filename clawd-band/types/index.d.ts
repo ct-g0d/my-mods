@@ -18,6 +18,7 @@ declare module 'claude-code' {
       turnStart: number
       warmed: number
       warmKind: 'glow' | 'thaw'
+      auto: number
     }
   }
 }

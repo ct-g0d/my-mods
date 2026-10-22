@@ -227,12 +227,13 @@ function thaw(mid: number, value: string, ago: number): string {
 // glow or thaw while `warm` lasts, and greys out while a turn is refreshing it anyway.
 const CACHE_WIDEST = '60m'
 
-function cacheChip(x0: number, minutes: number, working: boolean, warm?: Warm): { body: string; width: number } {
+// Labelled AUTO while /keepwarm's window keeps it warm on its own.
+function cacheChip(x0: number, minutes: number, working: boolean, warm?: Warm, auto?: boolean): { body: string; width: number } {
   const value = `${Math.max(0, minutes)}m`
   const tw = textWidth(value, 13)
   const w = Math.max(textWidth('CACHE', 8.5, 0.09), tw, textWidth(CACHE_WIDEST, 13))
   const mid = x0 + w / 2
-  let body = centredLabel(mid, 'CACHE')
+  let body = centredLabel(mid, auto ? 'AUTO' : 'CACHE')
   if (warm) {
     body = warm.kind === 'thaw' ? thaw(mid, value, warm.ago) + body : fire(mid, tw, warm.ago) + body + hazeValue(mid, value, warm.ago)
     return { body, width: w }
@@ -359,6 +360,8 @@ export type Stats = {
   cacheMinutes: number | null
   // /keepwarm's glow or thaw, while it plays.
   warm?: Warm
+  // Whether /keepwarm's auto window is on.
+  auto?: boolean
 }
 
 // The left cluster: the 5-hour bar over the 7-day one, session cost over the context bar, then
@@ -386,7 +389,7 @@ export function statsSvg(stats: Stats): Svg {
     (at: number) => stacked(limits, at),
     (at: number) => stacked(session, at),
     (at: number) => chips(speed, at),
-    (at: number) => (stats.cacheMinutes !== null ? cacheChip(at, stats.cacheMinutes, stats.working, stats.warm) : chips([{ label: 'CACHE', value: '—', widest: CACHE_WIDEST }], at)),
+    (at: number) => (stats.cacheMinutes !== null ? cacheChip(at, stats.cacheMinutes, stats.working, stats.warm, stats.auto) : chips([{ label: 'CACHE', value: '—', widest: CACHE_WIDEST }], at)),
     (at: number) => statusChip(at, stats.state, stats.working, stats.elapsed),
   ]) {
     if (!draw) continue
