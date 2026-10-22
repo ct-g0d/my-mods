@@ -434,10 +434,10 @@ const TEXT_EL = /<text\b([^>]*)>([\s\S]*?)<\/text>/g
 // class counts, so a percent that changes colour with its level is still the same percent.
 const placeOf = (attrs: string) => ['x', 'y', 'class'].map(a => new RegExp(`\\b${a}="([^" ]*)`).exec(attrs)?.[1] ?? '').join('|')
 const words = (inner: string) => inner.replace(/<[^>]*>/g, '')
-// The old text fades out over the first half of SWAP_S and the new one in over the second. Each rests at
-// its end state, so without animation the new text simply shows.
-const fadeOut = (el: string) => `<g opacity="0"><animate attributeName="opacity" values="1;0;0" keyTimes="0;.5;1" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
-const fadeIn = (el: string) => `<g><animate attributeName="opacity" values="0;0;1" keyTimes="0;.5;1" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
+// The old text fades out as the new one fades in, together over SWAP_S, so the place is never blank. Each
+// rests at its end state, so without animation the new text simply shows.
+const fadeOut = (el: string) => `<g opacity="0"><animate attributeName="opacity" values="1;0" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
+const fadeIn = (el: string) => `<g><animate attributeName="opacity" values="0;1" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
 
 // How long a changed number rolls to its new value, in seconds. It slows gently into place.
 export const ROLL_S = 0.9

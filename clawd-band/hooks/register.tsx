@@ -50,7 +50,7 @@ const CELL_PX = 7.8
 const BAND_PAD_PX = 24
 // Room kept clear beside the sky, as the desktop's padding and gaps run a little over the estimate: a piece
 // leaves a touch early rather than run under the sky.
-const SAFETY_PX = 32
+const SAFETY_PX = 20
 // Spare room a left-out piece needs before it comes back, so a width right at the edge does not flick it.
 const RETURN_PX = 16
 // How long a fade or roll plays, after which the band redraws plainly.
@@ -151,8 +151,7 @@ function swapped(name: string, raw: string, now: number): string {
   const s = swaps[name]
   if (!s) swaps[name] = { raw, shown: raw, at: 0 }
   else if (raw !== s.raw) {
-    // A change while the last one still plays shows plainly: replaying from the old markup would flash it back.
-    const shown = s.at && now - s.at < FADE_MS ? raw : crossfade(s.raw, raw)
+    const shown = crossfade(s.raw, raw)
     swaps[name] = { raw, shown, at: shown === raw ? 0 : now }
   } else if (s.at && now - s.at >= FADE_MS) swaps[name] = { raw, shown: raw, at: 0 }
   return swaps[name].shown

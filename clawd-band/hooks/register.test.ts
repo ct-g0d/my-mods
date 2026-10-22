@@ -283,7 +283,7 @@ test('desktop: a narrowing band leaves out the status, then HIT, TOK/S, CACHE, S
   let faded = false
   for (let columns = 200; columns >= 10; columns -= 2) {
     const drawn = JSON.stringify(await $.ui.render(band('desktop', columns)))
-    if (drawn.includes('1;0;0')) faded = true
+    if (drawn.includes('values=\\"1;0\\"')) faded = true
     // A piece just left out is still fading away; what counts is what stays.
     const json = drawn.replace(/<g opacity=\\"0\\">.*?<\/g>/g, '')
     // The sky and Clawd stay whatever the width.
@@ -307,17 +307,17 @@ test('desktop: a change mid-fade does not replay the old one, and a piece comes 
   // A status still fading out counts as gone.
   const hasStatus = (tree: any) => {
     const status = tree.children[0].children[1].children[1]
-    return Boolean(status) && !status.props.source.includes('1;0;0')
+    return Boolean(status) && !status.props.source.includes('values="1;0"')
   }
   let columns = 200
   while (hasStatus(await draw(columns))) columns--
   // HIT goes first among the stats, fading out.
   let tree = await draw(columns)
   while (shows(tree, '>HIT<')) tree = await draw(--columns)
-  expect(statsOf(tree)).toContain('1;0;0')
+  expect(statsOf(tree)).toContain('values="1;0"')
   // TOK/S goes while that still plays: the stats change over plainly, with no fade restarted from the old.
   while (shows(tree, '>TOK/S<')) tree = await draw(--columns)
-  expect(statsOf(tree)).not.toContain('1;0;0')
+  expect(statsOf(tree)).not.toContain('values="1;0"')
   // One cell wider than where TOK/S went is not room enough to bring it back.
   expect(statsOf(await draw(columns + 1))).not.toContain('>TOK/S<')
 })
@@ -329,7 +329,7 @@ test('stats: a changed number rolls, a changed word fades; the rest stays put', 
   const rolled = crossfade(a, b)
   // Only the cost's first digit rolls, one step up: 1 then 2, the rest of $1.00 holding still.
   expect(rolled.match(/attributeName="y"/g)!.length).toBe(2)
-  expect(rolled).not.toContain('values="1;0;0"')
+  expect(rolled).not.toContain('values="1;0"')
   const nine = statsSvg({ working: false, cacheMinutes: 45, cost: '$0.59' }).source
   const sixty = crossfade(nine, statsSvg({ working: false, cacheMinutes: 45, cost: '$0.60' }).source)
   // 59 rolls on into 60: the 5 to 6, and the 9 through to 0.
@@ -338,5 +338,5 @@ test('stats: a changed number rolls, a changed word fades; the rest stays put', 
   const low = statsSvg({ working: false, cacheMinutes: 45, limit: 20 }).source
   const filled = crossfade(low, statsSvg({ working: false, cacheMinutes: 45, limit: 60 }).source)
   expect(filled.match(/attributeName="width"/g)!.length).toBe(2)
-  expect(crossfade(statusSvg('Reading', true).source, statusSvg('Editing', true).source)).toContain('values="0;0;1"')
+  expect(crossfade(statusSvg('Reading', true).source, statusSvg('Editing', true).source)).toContain('values="0;1"')
 })
