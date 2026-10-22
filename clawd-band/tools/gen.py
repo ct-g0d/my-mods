@@ -1,10 +1,11 @@
 import json, sys
 sp = json.load(open(sys.argv[1]))
 out = sys.argv[2]
-# name: (sprite, speed, first frame only)
+# name: (sprite, speed, first frame only, or seconds to hold the first frame before each play)
 SPEC = {
-    'Idle': ('LookingAround', 1, True),
-    'LookAround': ('LookingAround', 0.4, False),
+    # Stands still, then looks around once, on one loop: no switch, so no reload, every few seconds.
+    'Idle': ('LookingAround', 0.4, 12),
+    'Still': ('LookingAround', 1, True),
     'Thinking': ('Thinking', 0.6, False),
     'Typing': ('Laptop', 0.8, False),
     'Computer': ('Desktop', 0.8, False),
@@ -19,7 +20,7 @@ SPEC = {
     'BigDone': ('BreakDancing', 1, False),
     'Sad': ('Disappointed', 1, False),
 }
-sp = {name: dict(sp[src], frames=sp[src]['frames'][:1] if still else sp[src]['frames'], speed=speed) for name, (src, speed, still) in SPEC.items()}
+sp = {name: dict(sp[src], frames=sp[src]['frames'][:1] if still is True else sp[src]['frames'], speed=speed, hold=0 if still is True else still) for name, (src, speed, still) in SPEC.items()}
 FORMS = list(SPEC)
 SCALE = 23 / 17  # Clawd's size, kept from before
 def anchor(v):
@@ -50,7 +51,7 @@ res, durations, heights = {}, {}, {}
 for n in FORMS:
     v = sp[n]; ax, ay = anchor(v); dx, dy = left - ax, top - ay
     runs = []
-    for f in v['frames']:
+    for f in [v['frames'][0]] * round(v['hold'] * v['fps'] * v['speed']) + v['frames']:
         if runs and runs[-1][0] == f: runs[-1][1] += 1
         else: runs.append([f, 1])
     total = sum(r[1] for r in runs); T = total / (v['fps'] * v['speed'])

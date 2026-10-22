@@ -1,5 +1,5 @@
 import { FORMS } from './clawd-frames'
-import { DAY_PERIODS, fade, forceDark, isNight, periodAt, statsSvg } from './design'
+import { DAY_PERIODS, fade, forceDark, isNight, periodAt, statsSvg, statusSvg } from './design'
 import { expect, mock, test } from 'claude-code/testing'
 
 // Clawd's tests run only where its artwork has been generated (see tools/gen.py).
@@ -16,14 +16,30 @@ const band = (surface: 'desktop' | 'terminal') =>
     props: { hasSurvey: false, maxRows: 10, bodyColumns: 80 },
   }) as any
 
-withClawd('desktop: Clawd stands still when idle', async ($, on) => {
+// The band's own row, under the popup's slot.
+const row = (tree: any) => tree.children[1]
+
+withClawd('desktop: Clawd idles on one looping drawing, and holds still asleep', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const [left, right] = tree.children
+  const [left, right] = row(tree).children
   const clawd = right.children[right.children.length - 1]
   expect(clawd.props.alt).toBe('Clawd: Idle')
-  expect(clawd.props.source).not.toContain('<animate')
   expect(left.children[0].props.alt).toBe('Clock')
+  // He looks around inside the drawing, so idling never swaps it.
+  expect(FORMS.Idle).toContain('repeatCount="indefinite"')
+  expect(FORMS.Still).not.toContain('<animate')
+})
+
+withClawd('desktop: a run of quick tools keeps one form', async ($, on) => {
+  const seen: string[] = []
+  on('ui.render', pass)
+  on('tool.call', async () => {
+    seen.push(/Clawd: (\w+)/.exec(JSON.stringify(await $.ui.render(band('desktop'))))![1]!)
+    return { result: 'ok', text: 'ok' } as any
+  })
+  for (let i = 0; i < 4; i++) await $.tool.call({ tool: 'Read', file_path: 'a.txt' } as any)
+  expect(new Set(seen).size).toBe(1)
 })
 
 withClawd('desktop: an Edit call plays Typing while it runs', async ($, on) => {
@@ -70,7 +86,7 @@ test("desktop: idle shows the period's own word, or Sleeping at night", async ($
 withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const right = tree.children[1]
+  const right = row(tree).children[1]
   const clawd = right.children[right.children.length - 1]
   expect(clawd.props.height).toBe(40)
 })
@@ -78,13 +94,13 @@ withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
 test('desktop: the clock sits in a desk-clock casing', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const clock = tree.children[0].children[0]
+  const clock = row(tree).children[0].children[0]
   expect(clock.props.height).toBe(40)
   expect(clock.props.source).toContain('cb-case')
 })
 
 test('stats: the session chip and the bars do not overlap', async () => {
-  const svg = statsSvg({ cost: '$1.00', limit: 50, state: 'Idle', working: false, cacheMinutes: null }).source
+  const svg = statsSvg({ cost: '$1.00', limit: 50, working: false, cacheMinutes: null }).source
   const xs = [...svg.matchAll(/<text class="label" x="([\d.]+)"/g)].map(m => Number(m[1]))
   expect(new Set(xs).size).toBeGreaterThan(1)
 })
@@ -115,20 +131,31 @@ test('desktop: plan updates and memory writes get their own statuses', async ($,
 })
 
 test('stats: while working, the cache greys out and the status carries the turn time', async () => {
-  const svg = statsSvg({ state: 'Thinking', working: true, elapsed: 42, cacheMinutes: 30 }).source
+  const svg = statsSvg({ working: true, cacheMinutes: 30 }).source
   expect(svg).toContain('<g opacity=".4">')
   expect(svg).toContain('>30m<')
-  expect(svg).toContain('class="tick"')
-  const idle = statsSvg({ state: 'Idle', working: false, cacheMinutes: 30 }).source
-  expect(idle).not.toContain('<g opacity=".4">')
-  expect(idle).not.toContain('class="tick"')
+  expect(statusSvg('Thinking', true, 42).source).toContain('class="tick"')
+  expect(statsSvg({ working: false, cacheMinutes: 30 }).source).not.toContain('<g opacity=".4">')
+  expect(statusSvg('Idle', false).source).not.toContain('class="tick"')
+})
+
+test('desktop: the status is its own drawing, so a new word leaves the stats as they were', async ($, on) => {
+  const stats: string[] = []
+  on('ui.render', pass)
+  on('tool.call', async () => {
+    const left = row(await $.ui.render(band('desktop'))).children[0]
+    stats.push(left.children[1].children[0].props.source)
+    return { result: 'ok', text: 'ok' } as any
+  })
+  await $.tool.call({ tool: 'Edit', file_path: 'a.txt', old_string: 'a', new_string: 'b' } as any)
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  expect(stats[0]).toBe(stats[1])
 })
 
 test('stats: the cache chills near the end, freezes at none, and /keepwarm glows or thaws', async () => {
-  const at = (cacheMinutes: number, warm?: any) => statsSvg({ state: 'Idle', working: false, cacheMinutes, warm }).source
+  const at = (cacheMinutes: number, warm?: any) => statsSvg({ working: false, cacheMinutes, warm }).source
   const warm = at(45)
   expect(warm).not.toContain('filter="url(#cb-rime)"')
-  expect(warm.indexOf('>CACHE<')).toBeLessThan(warm.indexOf('>STATUS<'))
   expect(at(6)).toContain('filter="url(#cb-rime)"')
   // More ice the closer it gets to cold.
   const level = (m: number) => Number(/filter="url\(#cb-rime\)" opacity="([\d.]+)"/.exec(at(m))![1])
@@ -167,7 +194,7 @@ test('night: 23:15 to 05:30, and its drawings go dark whatever the scheme', asyn
   expect(isNight(at(3, 0))).toBe(true)
   expect(isNight(at(5, 29))).toBe(true)
   expect(isNight(at(5, 30))).toBe(false)
-  const dark = forceDark(statsSvg({ state: 'Idle', working: false, cacheMinutes: null }).source)
+  const dark = forceDark(statsSvg({ working: false, cacheMinutes: null }).source)
   expect(dark).toContain('@media all')
   expect(dark).not.toContain('prefers-color-scheme')
 })
@@ -193,12 +220,11 @@ test('desktop: CTX shows before the first reply, estimated from the breakdown', 
 })
 
 // /keepwarm and the cold-send guard, against a mocked fork, model and context.
-// /keepwarm answers in a toast; this keeps each one it shows.
-let toasts: string[] = []
+// /keepwarm answers in a popup over the band; this reads the one showing.
+const popup = (node: any): string | undefined =>
+  node?.props?.alt?.startsWith('clawd-band: ') ? node.props.alt.slice('clawd-band: '.length) : (node?.children ?? []).map(popup).find(Boolean)
 const keepwarmSetup = (on: any, fork: any, tokens = 100000, store: any = {}) => {
-  toasts = []
   mock.store(on, store)
-  on('ui.toast' as any, async (_$: any, e: any) => { toasts.push(e.text); return { value: undefined } })
   on('session.start', async (_$: any, e: any) => ({ cwd: e.cwd }))
   on('command.register' as any, async () => ({ value: undefined }) as any)
   on('ui.render', pass)
@@ -209,7 +235,7 @@ const keepwarmSetup = (on: any, fork: any, tokens = 100000, store: any = {}) => 
 const keepwarm = async ($: any, args?: string) => {
   const r = await $.command.run({ command: 'keepwarm', args } as any)
   expect(r.text).toBeUndefined()
-  return toasts[toasts.length - 1]
+  return popup(await $.ui.render(band('desktop')))
 }
 const usage = (read: number, write: number) => ({ input_tokens: 10, output_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write })
 

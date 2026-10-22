@@ -1,4 +1,4 @@
-CLAWD BAND 1.1.1 - FEATURES
+CLAWD BAND 1.2.0 - FEATURES
 ===========================
 
 THE BAND
@@ -50,12 +50,14 @@ STATUS WORDS
     Night        Sleeping
 
 CLAWD'S FORMS
-- Idle while waiting; LookAround every random 10-20 seconds by day.
+- Idle while waiting: stands still, then looks around, every 18 seconds by day,
+  all in one looping drawing so Clawd never reloads while idle.
 - Thinking from the moment you send a message and between tools.
 - One form per tool while it runs:
     Typing      Edit, Write, NotebookEdit
     Computer    Bash, PowerShell, Monitor
-    Searching / Busy (picked at random)   Read, Grep, Glob, and any other tool
+    Searching / Busy (picked at random, kept through a run of tools)
+                Read, Grep, Glob, and any other tool
     Fetching    WebSearch, WebFetch, browser tools
     Delegating  Agent, SendMessage, start_session
     Asking      AskUserQuestion
@@ -93,11 +95,11 @@ COMMANDS
   on CACHE, or a thaw if it was frosting over. Declines if the cache has
   already gone cold. A ping that finds the cache already gone says so, with
   no glow.
-- Every /keepwarm reply pops up as a toast over the transcript (8 seconds),
-  not a line in it.
+- Every /keepwarm reply pops up in a row over the band (8 seconds), in the
+  band's tint and type, not as a line in the transcript.
 - /keepwarm 6h (or 90m, 1h30m): auto mode. Pings 50m after each reply for the
   whole window, so breaks never cost a cold re-write. CACHE reads AUTO while
-  it is on. Retries a busy API up to 3 times; stops with a toast if a ping
+  it is on. Retries a busy API up to 3 times; stops with a popup if a ping
   fails or finds the cache gone. Waits for the next reply after compaction or
   a cold cache. /keepwarm off, /keepwarm status.
 

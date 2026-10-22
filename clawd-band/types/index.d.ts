@@ -19,6 +19,7 @@ declare module 'claude-code' {
       warmed: number
       warmKind: 'glow' | 'thaw'
       auto: number
+      note: { text: string; at: number }
     }
   }
 }

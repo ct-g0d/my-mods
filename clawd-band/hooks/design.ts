@@ -17,7 +17,7 @@ const STYLE =
   `.soft{font-size:13px;font-weight:500;fill:var(--muted)}.tick{font-size:7px;font-weight:600;fill:var(--muted)}` +
   `.track{fill:var(--track)}` +
   `.lvl-ok{fill:#43A85C}.lvl-mid{fill:var(--ink)}.lvl-high{fill:#E2A526}.lvl-max{fill:#DC4A3D}` +
-  `.dot{fill:var(--accent)}.idle{fill:var(--muted)}` +
+  `.dot{fill:var(--accent)}.idle{fill:var(--muted)}.msg{font-size:13px;font-weight:500;fill:var(--ink)}` +
   `</style>`
 
 const LABEL_Y = 15
@@ -36,14 +36,14 @@ const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 export type Svg = { source: string; width: number; height: number }
 
-function svg(width: number, body: string): Svg {
+function svg(width: number, body: string, height = BAR_HEIGHT): Svg {
   const w = Math.ceil(width)
   return {
     source:
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${BAR_HEIGHT}" width="${w}" height="${BAR_HEIGHT}">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${height}" width="${w}" height="${height}">` +
       `${STYLE}${body}</svg>`,
     width: w,
-    height: BAR_HEIGHT,
+    height,
   }
 }
 
@@ -353,10 +353,7 @@ export type Stats = {
   parts?: Part[]
   hit?: number
   tps?: number
-  state: string
   working: boolean
-  // Seconds into the turn when the drawing is built; absent when idle.
-  elapsed?: number
   cacheMinutes: number | null
   // /keepwarm's glow or thaw, while it plays.
   warm?: Warm
@@ -365,7 +362,8 @@ export type Stats = {
 }
 
 // The left cluster: the 5-hour bar over the 7-day one, session cost over the context bar, then
-// cache hit and tokens a second, the cache's minutes left, and Claude's status last.
+// cache hit and tokens a second and the cache's minutes left. The status is its own drawing, so a
+// new word redraws only it.
 export function statsSvg(stats: Stats): Svg {
   // Every piece shows from the start, blank until measured, so the band never shifts as values arrive.
   const limits: Row[] = [
@@ -390,7 +388,6 @@ export function statsSvg(stats: Stats): Svg {
     (at: number) => stacked(session, at),
     (at: number) => chips(speed, at),
     (at: number) => (stats.cacheMinutes !== null ? cacheChip(at, stats.cacheMinutes, stats.working, stats.warm, stats.auto) : chips([{ label: 'CACHE', value: '—', widest: CACHE_WIDEST }], at)),
-    (at: number) => statusChip(at, stats.state, stats.working, stats.elapsed),
   ]) {
     if (!draw) continue
     const part = draw(x)
@@ -398,6 +395,27 @@ export function statsSvg(stats: Stats): Svg {
     x += part.width + CHIP_GAP
   }
   return svg(x - CHIP_GAP + 1, METER_DEFS.replace('</defs>', `${ICE_DEFS}${FROST_DEFS}</defs>`) + body)
+}
+
+// Claude's status, drawn right after the stats, a chip's gap from them.
+export function statusSvg(state: string, working: boolean, elapsed?: number): Svg {
+  const part = statusChip(CHIP_GAP - 1, state, working, elapsed)
+  return svg(CHIP_GAP + part.width, part.body)
+}
+
+const NOTE_LINE = 17
+
+// A popup in the band's own type: a small title over the message, wrapped to `maxW`.
+export function noteSvg(title: string, text: string, maxW = 640): Svg {
+  const lines: string[] = []
+  for (const word of text.split(' ')) {
+    const last = lines[lines.length - 1]
+    if (last !== undefined && textWidth(`${last} ${word}`, 13, 0, 500) <= maxW) lines[lines.length - 1] = `${last} ${word}`
+    else lines.push(word)
+  }
+  const width = Math.max(textWidth(title, 8.5, 0.09), ...lines.map(l => textWidth(l, 13, 0, 500)))
+  const body = `<text class="label" x="0" y="${LABEL_Y}">${esc(title)}</text>` + lines.map((l, i) => `<text class="msg" x="0" y="${VALUE_Y + i * NOTE_LINE}">${esc(l)}</text>`).join('')
+  return svg(width + 2, body, BAR_HEIGHT + (lines.length - 1) * NOTE_LINE)
 }
 
 // Night runs from 23:15 to 05:30: the band goes dark whatever the system's theme, and Clawd sleeps.
