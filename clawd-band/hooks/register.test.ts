@@ -22,8 +22,7 @@ const row = (tree: any) => tree
 withClawd('desktop: Clawd idles on one looping drawing, and holds still asleep', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const [left, around] = row(tree).children
-  const right = around.children[0]
+  const [left, right] = row(tree).children
   const clawd = right.children[right.children.length - 1]
   expect(clawd.props.alt).toBe('Clawd: Idle')
   expect(left.children[0].children[0].props.alt).toBe('Clock')
@@ -87,7 +86,7 @@ test("desktop: idle shows the period's own word, or Sleeping at night", async ($
 withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const right = row(tree).children[1].children[0]
+  const right = row(tree).children[1]
   const clawd = right.children[right.children.length - 1]
   expect(clawd.props.height).toBe(40)
 })

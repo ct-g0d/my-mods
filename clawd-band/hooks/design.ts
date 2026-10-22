@@ -427,7 +427,7 @@ export const forceLight = (source: string) => source.replace('@media (prefers-co
 export const FADE_S = 0.8
 
 // How long a changed word or number takes to fade out and the new one in, in seconds.
-export const SWAP_S = 0.5
+export const SWAP_S = 0.3
 
 const TEXT_EL = /<text\b([^>]*)>([\s\S]*?)<\/text>/g
 // A text's place in the drawing, so the same chip's value is found again after a change. Only the first

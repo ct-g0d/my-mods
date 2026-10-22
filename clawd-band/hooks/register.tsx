@@ -500,17 +500,17 @@ export const register: Register = on => {
           const fresh = !playing(s.at)
           swaps.stats = { raw: stats.source, shown: fresh ? regroup(s.raw, stats.source) : stats.source, at: fresh ? now : 0 }
         }
-        if ((level === 0) !== (fitLevel === 0)) statusAt = playing(statusAt) ? 0 : now
+        if ((level === 0) !== (fitLevel === 0)) statusAt = statusAt > 0 && now - statusAt < SWAP_S * 1000 ? 0 : now
       }
       fitLevel = level
       // While it fades out the status stays mounted, then leaves.
-      const statusFading = playing(statusAt)
+      const statusFading = statusAt > 0 && now - statusAt < SWAP_S * 1000
 
       const statsSource = swapped('stats', stats.source, now)
       // Each fade ends with a redraw of its own, so what it leaves (the status gone, the plain drawing) shows on time.
-      if (swaps.stats?.at === now || swaps.status?.at === now || statusAt === now) {
-        $.clock.after(FADE_MS + 50, async () => update($, redraw, n => n + 1))
-      }
+      const settle = (ms: number) => $.clock.after(ms + 50, async () => update($, redraw, n => n + 1))
+      if (swaps.stats?.at === now || swaps.status?.at === now) settle(FADE_MS)
+      if (statusAt === now) settle(SWAP_S * 1000)
 
       // By day the band takes the hour's tint and sky; its drawings keep the colours that suit the tint.
       const period = periodAt(now)
@@ -518,7 +518,7 @@ export const register: Register = on => {
       const bg = period?.bg ?? NIGHT_BG
 
       return (
-        <Box flexDirection="row" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
           {/* Every drawing keeps its own size. Until the desktop reports a new width (it waits a moment
               after a resize) the stats are cut off at their edge, never squeezed, and the sky and Clawd
               never give way. */}
@@ -532,15 +532,12 @@ export const register: Register = on => {
               })()}
             </Box>
           </Box>
-          {/* The sky and Clawd sit together, centred in the room the stats leave. */}
-          <Box flexDirection="row" flexGrow={1} flexShrink={0} justifyContent="center">
           <Box flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
             <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />
             {/* Only the current form is mounted: each is an animated sandboxed frame, and keeping every
                 form seen mounted and hidden piled them up until the desktop stopped repainting the band. */}
             {/* Asleep he holds still, dimmed; awake at night he is drawn as by day. */}
             <Svg source={asleep ? fade(FORMS.Still ?? '', 1, 0.8, sleepChangedAt ? 0 : FADE_S) : (FORMS[name] ?? FORMS.Idle)} alt={`Clawd: ${name}`} width={CLAWD_W} height={BAR_HEIGHT} isInteractive />
-          </Box>
           </Box>
         </Box>
       )
