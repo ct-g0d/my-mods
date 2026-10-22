@@ -1,72 +1,24 @@
 import { DAY_PERIODS, periodAt } from './design'
+import { deskClock } from './pixel-clock'
 
-// The band's clock: one fixed look for each stage of the day, all in the same 88 by 40 casing.
-// Each is one standalone SVG: a casing (material, bevel, rim), a recessed screen (inner shadow, glass glare) and a digit style.
+// The band's clock: a look for each stage of the day, all in the desk clock's 88 by 40 casing.
+// Morning to the golden hour keep the desk clock itself; the other stages change the casing's
+// colour, the screen and the digits.
 
-type Stop = [number, string, number?]
 type Time = { H: number; m: number; s: number; pm: boolean; hr: string; mm: string; h1: string | null; h2: string; m1: string; m2: string }
 type Glow = [string, number, number, number, number]
-type Material = { base: Stop[]; rim: string; hi: number; lo: number; tex?: string }
-type Screen = { base: Stop[]; sh: number; glare: number; edge?: number }
-type Look = { mat: Material; scr: Screen; fmt: '12' | '24'; draw: (t: Time) => string }
+type Look = { top: string; bot: string; rim: string; screen: string; fmt: '12' | '24'; draw: (t: Time) => string }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
-const rr = (x: number, y: number, w: number, h: number, r: number) =>
-  `M${x + r} ${y}H${x + w - r}A${r} ${r} 0 0 1 ${x + w} ${y + r}V${y + h - r}A${r} ${r} 0 0 1 ${x + w - r} ${y + h}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + h - r}V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`
-const BODY = 'x=".5" y=".5" width="87" height="39" rx="8"'
-const SCREEN = 'x="5" y="5" width="78" height="30" rx="3.5"'
-const RING = rr(3.5, 3.5, 81, 33, 5) + rr(5, 5, 78, 30, 3.5)
-const FU = 'filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"'
-const SCR_F = `x="5" y="5" width="78" height="30" ${FU}`
-const stops = (s: Stop[]) => s.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a == null ? '' : ` stop-opacity="${a}"`}/>`).join('')
-const lin = (id: string, s: Stop[], x2 = 0, y2 = 1) => `<linearGradient id="${id}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops(s)}</linearGradient>`
-const rad = (id: string, s: Stop[], cx = 0.5, cy = 0.5, r = 0.5) => `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${stops(s)}</radialGradient>`
 const BLINK = '<animate attributeName="opacity" values="1;.12" keyTimes="0;.5" calcMode="discrete" dur="2s" repeatCount="indefinite"/>'
 
 // A lit element's glow: a tight and a wide halo in `c`, under the element itself.
 const glowF = (id: string, c: string, sd1: number, a1: number, sd2: number, a2: number) =>
-  `<filter id="${id}" ${SCR_F}>` +
+  `<filter id="${id}" x="5" y="5" width="78" height="30" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">` +
   `<feGaussianBlur in="SourceAlpha" stdDeviation="${sd1}" result="b1"/><feGaussianBlur in="SourceAlpha" stdDeviation="${sd2}" result="b2"/>` +
   `<feFlood flood-color="${c}"/><feComposite in2="b1" operator="in"/><feComponentTransfer result="g1"><feFuncA type="linear" slope="${a1}"/></feComponentTransfer>` +
   `<feFlood flood-color="${c}"/><feComposite in2="b2" operator="in"/><feComponentTransfer result="g2"><feFuncA type="linear" slope="${a2}"/></feComponentTransfer>` +
   `<feMerge><feMergeNode in="g2"/><feMergeNode in="g1"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`
-
-// ---- textures: a noise field turned into dark grains (where high) and light grains (where low) ----
-const grainF = (id: string, turb: string, k: number, kl = k) =>
-  `<filter id="${id}" x="0" y="0" width="88" height="40" ${FU}>${turb.replace('/>', ' result="n"/>')}` +
-  `<feColorMatrix in="n" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${k} 0 0 0 ${-k / 2}" result="d"/>` +
-  `<feColorMatrix in="n" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 ${-kl} 0 0 0 ${kl / 2}" result="l"/>` +
-  `<feMerge><feMergeNode in="d"/><feMergeNode in="l"/></feMerge></filter><rect width="88" height="40" filter="url(#${id})"/>`
-const turb = (f: string, o: number, seed: number) => `<feTurbulence type="fractalNoise" baseFrequency="${f}" numOctaves="${o}" seed="${seed}"/>`
-
-// ---- sheens over the casing ----
-const satin = (a: number) =>
-  `<radialGradient id="sa" cx=".28" cy="-.15" r=".95"><stop offset="0" stop-color="#fff" stop-opacity="${a}"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient><rect ${BODY} fill="url(#sa)"/>`
-const gloss = (a: number) =>
-  lin('gs', [[0, '#fff', a], [1, '#fff', a * 0.25]]) + `<path clip-path="url(#bc)" d="M0 0H88V11.5C63 9.2 25 9.6 0 13.6Z" fill="url(#gs)"/>`
-
-// ---- casings: base is the vertical gradient; hi and lo the bevel's light on top and shade below; rim the outer edge ----
-const MAT: Record<'cream' | 'graphite' | 'piano' | 'carbon' | 'mint', Material> = {
-  cream: { base: [[0, '#FAF7F0'], [0.55, '#ECE7DB'], [1, '#D2CBBB']], rim: '#9F988A', hi: 0.95, lo: 0.2, tex: grainF('pl', turb('.9', 1, 2), 0.1) + satin(0.5) },
-  graphite: { base: [[0, '#55534E'], [0.5, '#3D3C38'], [1, '#2A2926']], rim: '#0C0B0A', hi: 0.32, lo: 0.4, tex: grainF('gr', turb('1.1', 1, 4), 0.28, 0.18) + satin(0.16) },
-  piano: { base: [[0, '#2E2E33'], [0.45, '#121214'], [1, '#050506']], rim: '#000', hi: 0.5, lo: 0.4, tex: gloss(0.2) + satin(0.08) },
-  carbon: {
-    base: [[0, '#1D1E20'], [1, '#0B0B0C']], rim: '#000', hi: 0.4, lo: 0.5,
-    tex: lin('ch', [[0, '#050505'], [0.5, '#3B3C40'], [1, '#050505']]) + lin('cv', [[0, '#050505'], [0.5, '#2A2B2E'], [1, '#050505']], 1, 0) +
-      '<pattern id="cw" width="4.4" height="4.4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.2" height="2.2" fill="url(#ch)"/><rect x="2.2" y="2.2" width="2.2" height="2.2" fill="url(#ch)"/><rect x="2.2" width="2.2" height="2.2" fill="url(#cv)"/><rect y="2.2" width="2.2" height="2.2" fill="url(#cv)"/></pattern>' +
-      '<rect width="88" height="40" fill="url(#cw)" opacity=".85"/>' + gloss(0.14) + satin(0.1),
-  },
-  mint: { base: [[0, '#DDF4EA'], [0.5, '#B6E1CE'], [1, '#90C6AE']], rim: '#5A917C', hi: 0.9, lo: 0.25, tex: gloss(0.5) },
-}
-
-// ---- screens: base gradient, inner shadow strength, glass glare ----
-const SCR: Record<'amber' | 'red' | 'vfd' | 'jet' | 'lcd', Screen> = {
-  amber: { base: [[0, '#16130F'], [1, '#262119']], sh: 0.8, glare: 0.1 },
-  red: { base: [[0, '#170504'], [1, '#2A0906']], sh: 0.8, glare: 0.11 },
-  vfd: { base: [[0, '#020807'], [1, '#081614']], sh: 0.85, glare: 0.12 },
-  jet: { base: [[0, '#020203'], [1, '#0C0C0E']], sh: 0.85, glare: 0.14 },
-  lcd: { base: [[0, '#C6D1B1'], [1, '#AAB893']], sh: 0.45, glare: 0.18, edge: 0.45 },
-}
 
 // ---- time ----
 function time(ms: number, fmt: '12' | '24'): Time {
@@ -111,26 +63,6 @@ const seg7 = (o: Seven) => (t: Time) => {
     `<g fill="${o.c}"${o.op ? ` fill-opacity="${o.op}"` : ''}${g1 ? ' filter="url(#lg)"' : ''}>${lit}${colon}${o.pm ? o.pm(t) : ''}</g>` + (o.over ?? '')
 }
 
-// ---- a 3 by 5 pixel font, each pixel a rounded square, with the unlit ones faintly showing ----
-const F3: Record<string, string[]> = {
-  0: ['###', '#.#', '#.#', '#.#', '###'], 1: ['.#.', '##.', '.#.', '.#.', '###'], 2: ['###', '..#', '###', '#..', '###'],
-  3: ['###', '..#', '.##', '..#', '###'], 4: ['#.#', '#.#', '###', '..#', '..#'], 5: ['###', '#..', '###', '..#', '###'],
-  6: ['###', '#..', '###', '#.#', '###'], 7: ['###', '..#', '.#.', '.#.', '.#.'], 8: ['###', '#.#', '###', '#.#', '###'],
-  9: ['###', '#.#', '###', '..#', '###'],
-}
-const pixel = (o: { pitch: number; size: number; rx: number; sp: number; cg: number; c: string; ghost: number; glow: Glow }) => (t: Time) => {
-  const cw = 3 * o.pitch, { xs, cx } = row(cw - (o.pitch - o.size), o.sp, o.cg), y0 = 20 - (5 * o.pitch - (o.pitch - o.size)) / 2
-  const cell = (x: number, y: number) => `<rect x="${r2(x)}" y="${r2(y)}" width="${o.size}" height="${o.size}" rx="${o.rx}"/>`
-  let lit = '', off = ''
-  digits(t).forEach((n, i) => F3['8']!.forEach((r, y) => [...r].forEach((_, c) => {
-    const e = cell(xs[i]! + c * o.pitch, y0 + y * o.pitch)
-    if (n != null && F3[n]![y]![c] === '#') lit += e
-    else off += e
-  })))
-  const colon = [1, 3].map(r => cell(cx - o.size / 2, y0 + r * o.pitch)).join('')
-  return glowF('lg', ...o.glow) + `<g fill="${o.c}" fill-opacity="${o.ghost}">${off}${colon}</g><g fill="${o.c}" filter="url(#lg)">${lit}<g>${colon}${BLINK}</g></g>`
-}
-
 // ---- hand-drawn single-stroke figures in a 10 by 16 box ----
 const G: Record<string, string> = {
   0: 'M5 0C2.2 0 .6 3 .6 8S2.2 16 5 16 9.4 13 9.4 8 7.8 0 5 0Z',
@@ -167,19 +99,18 @@ const secBar = (c: string) => () =>
   `<rect x="18" y="31" width="0" height=".7" rx=".35" fill="${c}"><animate attributeName="width" values="0;52" dur="60s" repeatCount="indefinite"/></rect>`
 const MESH = '<pattern id="vm" width="1.1" height="1.1" patternUnits="userSpaceOnUse"><path d="M0 .05H1.1M.05 0V1.1" stroke="#000" stroke-width=".22" stroke-opacity=".55"/></pattern><rect x="5" y="5" width="78" height="30" fill="url(#vm)"/>'
 
-// ---- the five looks ----
+// ---- the looks that change the casing: its colours, the screen and the digits ----
+const DARK = { top: '#4A4843', bot: '#2B2A27', rim: '#0E0D0C' }
 export type ClockLook = 'lcd' | 'desk' | 'carbon' | 'vfd' | 'bedside'
-const LOOKS: Record<ClockLook, Look> = {
+const LOOKS: Record<Exclude<ClockLook, 'desk'>, Look> = {
   // mint enamel and a reflective LCD
-  lcd: { mat: MAT.mint, scr: SCR.lcd, fmt: '12', draw: seg7({ w: 11, h: 19, th: 2.5, sl: 4, c: '#18210F', op: 0.88, ghost: 0.06, lcd: '.55 .8', pm: pmMark(8.6, 9.6, '#18210F', 0) }) },
-  // cream plastic and amber pixels on a dark LCD
-  desk: { mat: MAT.cream, scr: SCR.amber, fmt: '24', draw: pixel({ pitch: 4, size: 3.45, rx: 0.45, sp: 4, cg: 9, c: '#F6AC60', ghost: 0.08, glow: ['#FF8A2A', 0.7, 0.9, 2, 0.6] }) },
-  // carbon fibre and thin white figures with a seconds bar
-  carbon: { mat: MAT.carbon, scr: SCR.jet, fmt: '24', draw: thin({ sc: 1.06, sp: 3.6, cg: 7, sw: 1.25, cy: 19, c: '#F4F7FA', cc: '#FF3B30', dot: 0.85, glow: ['#BFD8FF', 0.5, 0.7, 1.6, 0.35], over: secBar('#FF3B30') }) },
-  // piano black and teal vacuum-fluorescent digits
-  vfd: { mat: MAT.piano, scr: SCR.vfd, fmt: '12', draw: seg7({ w: 11, h: 18.5, th: 2.1, g: 0.35, sl: 5, cy: 20.8, c: '#7CFBE4', gc: '#58B9AA', ghost: 0.16, glow: ['#22E3C2', 0.6, 1.2, 2.2, 0.8], pm: pmMark(8.5, 9.6, '#7CFBE4', 0.15), over: MESH }) },
-  // graphite and red slanted seven-segment: the bedside clock
-  bedside: { mat: MAT.graphite, scr: SCR.red, fmt: '12', draw: seg7({ w: 11.2, h: 20, th: 2.6, sl: 8, c: '#FF4A30', gc: '#FF2A14', ghost: 0.1, glow: ['#FF1E0A', 0.6, 1.1, 2, 0.75], pm: t => (t.pm ? '<circle cx="9.6" cy="9.3" r=".9"/>' : '') }) },
+  lcd: { top: '#DDF4EA', bot: '#B6E1CE', rim: '#8FB8A5', screen: '#B8C4A2', fmt: '12', draw: seg7({ w: 11, h: 19, th: 2.5, sl: 4, c: '#18210F', op: 0.88, ghost: 0.06, lcd: '.55 .8', pm: pmMark(8.6, 9.6, '#18210F', 0) }) },
+  // thin white figures with a seconds bar
+  carbon: { ...DARK, screen: '#050506', fmt: '24', draw: thin({ sc: 1.06, sp: 3.6, cg: 7, sw: 1.25, cy: 19, c: '#F4F7FA', cc: '#FF3B30', dot: 0.85, glow: ['#BFD8FF', 0.5, 0.7, 1.6, 0.35], over: secBar('#FF3B30') }) },
+  // teal vacuum-fluorescent digits
+  vfd: { ...DARK, screen: '#06100E', fmt: '12', draw: seg7({ w: 11, h: 18.5, th: 2.1, g: 0.35, sl: 5, cy: 20.8, c: '#7CFBE4', gc: '#58B9AA', ghost: 0.16, glow: ['#22E3C2', 0.6, 1.2, 2.2, 0.8], pm: pmMark(8.5, 9.6, '#7CFBE4', 0.15), over: MESH }) },
+  // red slanted seven-segment: the bedside clock
+  bedside: { ...DARK, screen: '#141210', fmt: '12', draw: seg7({ w: 11.2, h: 20, th: 2.6, sl: 8, c: '#FF4A30', gc: '#FF2A14', ghost: 0.1, glow: ['#FF1E0A', 0.6, 1.1, 2, 0.75], pm: t => (t.pm ? '<circle cx="9.6" cy="9.3" r=".9"/>' : '') }) },
 }
 
 // The look for each of the day's eight periods, then the night's.
@@ -193,21 +124,19 @@ export function lookAt(ms: number): ClockLook {
 
 // The time `shown`, drawn in the look of the stage `now` falls in.
 export function clockSvg(shown: number, now = shown): { source: string; width: number; height: number; look: ClockLook } {
-  const look = lookAt(now), { mat: m, scr: s, fmt, draw } = LOOKS[look]
+  const look = lookAt(now)
+  if (look === 'desk') return { ...deskClock(shown), look }
+  const { top, bot, rim, screen, fmt, draw } = LOOKS[look]
   const source =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 40" width="88" height="40"><defs>' +
-    lin('bd', m.base) + lin('bv', [[0, '#fff', m.hi], [0.3, '#fff', 0], [0.7, '#000', 0], [1, '#000', m.lo]]) +
-    lin('rc', [[0, '#000', 0.5], [0.45, '#000', 0], [0.55, '#fff', 0], [1, '#fff', 0.45]]) + lin('sf', s.base) +
-    lin('gl', [[0, '#fff', s.glare], [1, '#fff', s.glare * 0.15]]) +
-    `<clipPath id="bc"><rect ${BODY}/></clipPath><clipPath id="sc"><rect ${SCREEN}/></clipPath>` +
-    `<filter id="is" x="0" y="0" width="88" height="40" ${FU}><feGaussianBlur stdDeviation=".9"/></filter></defs>` +
-    `<rect ${BODY} fill="url(#bd)"/>` + (m.tex ? `<g clip-path="url(#bc)">${m.tex}</g>` : '') +
-    '<rect x="1.25" y="1.25" width="85.5" height="37.5" rx="7.25" fill="none" stroke="url(#bv)" stroke-width="1.5"/>' +
-    `<rect ${BODY} fill="none" stroke="${m.rim}"/>` +
-    `<path d="${RING}" fill="url(#rc)" fill-rule="evenodd"/><rect ${SCREEN} fill="url(#sf)"/>` +
-    `<g clip-path="url(#sc)">${draw(time(shown, fmt))}` +
-    `<rect ${SCREEN} fill="none" stroke="#000" stroke-opacity="${s.sh}" stroke-width="3" filter="url(#is)" transform="translate(0 .8)"/>` +
-    '<path d="M5 5H83V14.6C62 12.2 28 12.6 5 17.2Z" fill="url(#gl)"/></g>' +
-    `<rect ${SCREEN} fill="none" stroke="#000" stroke-opacity="${s.edge ?? 0.6}" stroke-width=".5"/></svg>`
+    `<linearGradient id="cb-case" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${top}"/><stop offset="1" stop-color="${bot}"/></linearGradient>` +
+    '<linearGradient id="cb-glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".5" stop-color="#fff" stop-opacity=".04"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
+    '<clipPath id="sc"><rect x="5" y="5" width="78" height="30" rx="3.5"/></clipPath></defs>' +
+    `<rect x=".5" y=".5" width="87" height="39" rx="8" fill="url(#cb-case)" stroke="${rim}"/>` +
+    '<rect x="1.5" y="1.5" width="85" height="37" rx="7" fill="none" stroke="#fff" stroke-opacity=".35"/>' +
+    `<rect x="5" y="5" width="78" height="30" rx="3.5" fill="${screen}"/>` +
+    `<g clip-path="url(#sc)">${draw(time(shown, fmt))}</g>` +
+    '<rect x="5" y="5" width="78" height="2" rx="1" fill="#000" fill-opacity=".35"/>' +
+    '<rect x="5" y="5" width="78" height="30" rx="3.5" fill="url(#cb-glass)"/></svg>'
   return { source, width: 88, height: 40, look }
 }

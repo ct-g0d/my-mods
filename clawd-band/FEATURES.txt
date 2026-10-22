@@ -1,4 +1,4 @@
-CLAWD BAND 1.8.0 - FEATURES
+CLAWD BAND 1.8.1 - FEATURES
 ===========================
 
 THE BAND
@@ -9,11 +9,11 @@ THE BAND
 CLOCK
 - A different clock for each stage of the day, all in the same casing and
   ticking over each minute:
-    Dawn                    mint enamel, reflective LCD (12-hour)
-    Morning to Golden hour  cream plastic, amber pixel digits (24-hour)
-    Dusk                    carbon fibre, thin white figures, seconds bar
-    Evening                 piano black, teal vacuum-fluorescent (12-hour)
-    Night                   graphite, red slanted LED bedside clock
+    Dawn                    mint casing, reflective LCD (12-hour)
+    Morning to Golden hour  cream casing, amber pixel digits (24-hour)
+    Dusk                    dark casing, thin white figures, seconds bar
+    Evening                 dark casing, teal vacuum-fluorescent (12-hour)
+    Night                   dark casing, red slanted LED bedside clock
 
 SESSION STATS
 - 5H and 7D: your 5-hour and 7-day usage limits as glowing bars with percents.

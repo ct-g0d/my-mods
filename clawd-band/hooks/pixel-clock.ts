@@ -69,6 +69,52 @@ function countingDigit(x0: number, y0: number, count: number, step: number, at: 
   return out
 }
 
+// The desk clock's casing, screen and lit-pixel colours.
+const CASE_STYLE = `<style>:root{--rim:#B9B6AD;--top:#F4F2EC;--bot:#CFCBC1;--screen:#2A2620;--lit:#F2A65A}</style>`
+
+const CASE_DEFS =
+  `<defs>` +
+  `<linearGradient id="cb-case" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--top)"/><stop offset="1" style="stop-color:var(--bot)"/></linearGradient>` +
+  `<linearGradient id="cb-glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".5" stop-color="#fff" stop-opacity=".04"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+  `<filter id="cb-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
+  `</defs>`
+
+// HH:MM in the pixel font, lit amber on a recessed LCD
+// inside a bevelled desk-clock casing, with the unlit segments faintly behind them.
+export function deskClock(ms: number): { source: string; width: number; height: number } {
+  const text = clockText(ms)
+  const dx = 10
+  const dy = 10
+  let x = 0
+  let lit = ''
+  let ghost = ''
+  for (const ch of text) {
+    lit += glyph(ch, dx + x, dy, PIXEL)
+    if (ch !== ':') ghost += glyph('8', dx + x, dy, PIXEL)
+    x += (FONT[ch][0].length + 1) * PIXEL
+  }
+  const width = dx + x - PIXEL + dx
+  const height = 40
+  return {
+    source:
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">` +
+      CASE_STYLE + CASE_DEFS +
+      // Casing: a bevelled body with a dark rim and a bright top edge.
+      `<rect x=".5" y=".5" width="${width - 1}" height="${height - 1}" rx="8" fill="url(#cb-case)" style="stroke:var(--rim)"/>` +
+      `<rect x="1.5" y="1.5" width="${width - 3}" height="${height - 3}" rx="7" fill="none" stroke="#fff" stroke-opacity=".35"/>` +
+      // Screen: recessed, with a shadowed top lip.
+      `<rect x="5" y="5" width="${width - 10}" height="${height - 10}" rx="3.5" style="fill:var(--screen)"/>` +
+      `<rect x="5" y="5" width="${width - 10}" height="2" rx="1" fill="#000" fill-opacity=".35"/>` +
+      `<g shape-rendering="crispEdges" style="fill:var(--lit)" fill-opacity=".09">${ghost}</g>` +
+      `<g shape-rendering="crispEdges" style="fill:var(--lit)" filter="url(#cb-glow)">${lit}</g>` +
+      // Glass glare over the top half of the screen.
+      `<rect x="5" y="5" width="${width - 10}" height="${height - 10}" rx="3.5" fill="url(#cb-glass)"/>` +
+      `</svg>`,
+    width,
+    height,
+  }
+}
+
 // Any text in the pixel font, `px` screen pixels per font pixel.
 export function pixelText(text: string, px = PIXEL): { source: string; width: number; height: number } {
   let x = 0
