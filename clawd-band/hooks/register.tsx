@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface as Engine, Register } from 'claude-code'
+import type { EngineInterface as Engine, Register, SessionMeasureInput } from 'claude-code'
 
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, NIGHT_BG, SLEEP_W, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
+import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
 import type { Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
@@ -31,6 +31,10 @@ const hit = atom({ plugin: 'clawd-band', key: 'hit' } as const, -1)
 const tps = atom({ plugin: 'clawd-band', key: 'tps' } as const, -1)
 const lastReply = atom({ plugin: 'clawd-band', key: 'lastReply' } as const, 0)
 const turnStart = atom({ plugin: 'clawd-band', key: 'turnStart' } as const, 0)
+// When a turn last brought the cache back to 60m; CACHE plays its effect for WARM_S seconds from then.
+const warmed = atom({ plugin: 'clawd-band', key: 'warmed' } as const, 0)
+// That effect: a fire glow when the cache was fine, a thaw when it was chilling or frozen.
+const warmKind = atom({ plugin: 'clawd-band', key: 'warmKind' } as const, 'glow' as 'glow' | 'thaw')
 // A cold send over this many tokens of context is stopped once with its price.
 const GUARD_TOKENS = 50000
 // Prompts no person sent, so nobody could send them again after the guard stopped one.
@@ -101,8 +105,8 @@ let tools = 0
 // Stats measured during a turn, shown once it ends: each change reloads the stats drawing and
 // its fonts, which flickers if it happens mid-turn.
 let pending: { cost?: string; limit?: number; week?: number; context?: number; hit?: number; tps?: number } = {}
-// Mid-turn, stats still show up this often at most, which keeps the redraw flicker down.
-const LIVE_MS = 4000
+// The usage figures are read this often, and mid-turn stats show up this often at most.
+const LIVE_MS = 2000
 let lastFlush = 0
 // Whether Clawd was asleep at the last drawing, and when that last changed, so the dimming fades.
 let wasAsleep: boolean | undefined
@@ -110,6 +114,9 @@ let sleepChangedAt = 0
 
 // This session's key in the store: its first launch, which stays the same when it is resumed.
 let sessionKey = ''
+
+// The cache's minutes left when the turn began; null when nothing had been cached yet.
+let chill: number | null = null
 
 // The reply whose cold cache the guard last warned about; the next send after it goes through.
 let ackedAt = 0
@@ -144,18 +151,37 @@ async function restore($: Engine, startedAt: number) {
   if (saved?.tps !== undefined && (await read($, tps)) < 0) await update($, tps, () => saved.tps!)
 }
 
+// Takes the session's usage figures in, to show at the next flush.
+function take(u: Omit<SessionMeasureInput, 'changed'>) {
+  if (u.cost) pending.cost = costText(u.cost.usd)
+  const fiveHour = u.rateLimits.find(r => r.kind === 'five_hour')
+  if (fiveHour) pending.limit = Math.round(fiveHour.percentUsed)
+  const sevenDay = u.rateLimits.find(r => r.kind === 'seven_day')
+  if (sevenDay) pending.week = Math.round(sevenDay.percentUsed)
+  if (u.context.percent !== undefined) pending.context = Math.round(u.context.percent)
+}
+
+// session.measure only fires after a turn or when a limit moves a whole point, so mid-turn the cost
+// and context are read here instead, every LIVE_MS. The plain usage call costs nothing.
+async function poll($: Engine) {
+  take(await $.session.usage())
+  await flushStats($)
+}
+
 async function flushStats($: Engine) {
   lastFlush = Date.now()
-  const { cost: c, limit: l, week: w, context: x } = pending
-  if (c !== undefined && (await read($, cost)) !== c) await update($, cost, () => c)
-  if (l !== undefined && (await read($, limit)) !== l) await update($, limit, () => l)
-  if (w !== undefined && (await read($, week)) !== w) await update($, week, () => w)
-  if (x !== undefined && (await read($, context)) !== x) await update($, context, () => x)
-  const { hit: h, tps: t } = pending
-  if (h !== undefined && (await read($, hit)) !== h) await update($, hit, () => h)
-  if (t !== undefined && (await read($, tps)) !== t) await update($, tps, () => t)
+  const { cost: c, limit: l, week: w, context: x, hit: h, tps: t } = pending
+  const before = [await read($, cost), await read($, limit), await read($, week), await read($, context), await read($, hit), await read($, tps)]
+  if (c !== undefined && before[0] !== c) await update($, cost, () => c)
+  if (l !== undefined && before[1] !== l) await update($, limit, () => l)
+  if (w !== undefined && before[2] !== w) await update($, week, () => w)
+  if (x !== undefined && before[3] !== x) await update($, context, () => x)
+  if (h !== undefined && before[4] !== h) await update($, hit, () => h)
+  if (t !== undefined && before[5] !== t) await update($, tps, () => t)
+  const moved = [c, l, w, x, h, t].some((v, k) => v !== undefined && v !== before[k])
   pending = {}
-  await refreshParts($)
+  // The breakdown is counted only when something moved, since the poll flushes every LIVE_MS.
+  if (moved || !(await read($, parts)).length) await refreshParts($)
 }
 
 // Reads the context window by category, estimated locally, as slices of the CTX bar.
@@ -224,6 +250,7 @@ export const register: Register = on => {
     }
     await restore($, usage.startedAt)
     refreshParts($)
+    $.clock.every(LIVE_MS, () => void poll($))
     $.clock.every(1000, async () => {
       const now = Date.now()
       if (clockText(await read($, time)) !== clockText(now)) {
@@ -235,12 +262,7 @@ export const register: Register = on => {
   })
 
   on('session.measure', async ($, e, next) => {
-    if (e.cost && e.changed.includes('cost')) pending.cost = costText(e.cost.usd)
-    const fiveHour = e.rateLimits.find(r => r.kind === 'five_hour')
-    if (fiveHour) pending.limit = Math.round(fiveHour.percentUsed)
-    const sevenDay = e.rateLimits.find(r => r.kind === 'seven_day')
-    if (sevenDay) pending.week = Math.round(sevenDay.percentUsed)
-    if (e.context.percent !== undefined) pending.context = Math.round(e.context.percent)
+    take(e)
     if (!isWorking || Date.now() - lastFlush > LIVE_MS) await flushStats($)
 
     return next(e)
@@ -262,6 +284,8 @@ export const register: Register = on => {
     }
     isWorking = true
     tools = 0
+    const before = await read($, lastReply)
+    chill = before ? Math.ceil((before + CACHE_TTL_MS - Date.now()) / 60000) : null
     await update($, turnStart, () => Date.now())
     await update($, doing, () => 'Thinking|')
     await show($, 'Thinking')
@@ -347,7 +371,16 @@ export const register: Register = on => {
       tools = 0
       await update($, doing, () => '')
       await update($, turnStart, () => 0)
-      await update($, lastReply, () => Date.now())
+      const now = Date.now()
+      await update($, lastReply, () => now)
+      // The turn brought the cache back to 60m: CACHE glows, or thaws if it was chilling or frozen.
+      if (chill !== null) {
+        await update($, warmKind, () => (chill! <= ICE_MINUTES ? 'thaw' : 'glow'))
+        await update($, warmed, () => now)
+        $.clock.after(WARM_S * 1000 + 100, async () => {
+          if ((await read($, warmed)) === now) await update($, warmed, () => 0)
+        })
+      }
       finish($, e.isAborted ? 'Sad' : e.durationMs > BIG_TURN_MS ? 'BigDone' : 'Done')
       await flushStats($)
       await save($)
@@ -374,6 +407,8 @@ export const register: Register = on => {
       const speed = await read($, tps)
       const repliedAt = await read($, lastReply)
       const startedAt = await read($, turnStart)
+      const warmedAt = await read($, warmed)
+      const warmedKind = await read($, warmKind)
       const label = await read($, doing)
 
       const cacheLeft = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - now) / 60000) : null
@@ -396,6 +431,7 @@ export const register: Register = on => {
       const stats = statsSvg({
         working,
         cacheMinutes: cacheLeft,
+        warm: warmedAt && now - warmedAt < WARM_S * 1000 ? { kind: warmedKind, ago: (now - warmedAt) / 1000 } : undefined,
         cost: spent || undefined,
         limit: used >= 0 ? used : undefined,
         week: weekly >= 0 ? weekly : undefined,

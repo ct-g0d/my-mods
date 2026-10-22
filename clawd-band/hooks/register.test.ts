@@ -239,3 +239,35 @@ test('guard: a cold send is stopped once with its price, the resend goes through
   const second: any = await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' } } as any)
   expect(second.drop).toBeUndefined()
 })
+
+test('stats: usage is read mid-turn, not only when the turn ends', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on, {})
+  on('session.start', async (_$: any, e: any) => ({ cwd: e.cwd }))
+  on('command.register' as any, async () => ({ value: undefined }) as any)
+  on('ui.render', pass)
+  on('prompt.submit', async (_$: any, e: any) => ({ text: e.text }))
+  let usd = 1
+  on('session.usage' as any, async () => ({ value: { startedAt: 1, context: { window: 1000000 }, rateLimits: [], cost: { usd } } }) as any)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true } as any)
+  await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' } } as any)
+  usd = 4.2
+  await clock.advance(2000)
+  expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain('$4.20')
+})
+
+// A turn ends with the cache back at 60m: CACHE glows, or thaws when it was chilling.
+for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
+  test(`stats: a turn's end ${kind}s CACHE when it began ${ago}m after the last reply`, async ($, on) => {
+    guardSetup(on, 1000, { 's:1': { lastReply: Date.now() - ago * 60000 } })
+    on('prompt.submit', async (_$: any, e: any) => ({ text: e.text }))
+    mock.clock(on)
+    on('turn.complete' as any, async () => ({ text: '' }))
+    await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true } as any)
+    await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' } } as any)
+    await ($ as any).turn.complete({ answer: 'ok', turnId: 't', reason: 'answer', isAborted: false, durationMs: 1000 })
+    const json = JSON.stringify(await $.ui.render(band('desktop')))
+    expect(json).toContain('url(#cb-flicker)')
+    expect(json.includes('filter=\\"url(#cb-rime)\\"')).toBe(kind === 'thaw')
+  })
+}

@@ -1,4 +1,4 @@
-CLAWD BAND 1.3.0 - FEATURES
+CLAWD BAND 1.4.0 - FEATURES
 ===========================
 
 THE BAND
@@ -26,8 +26,10 @@ SESSION STATS
 - CACHE: minutes left before the prompt cache goes cold (1 hour after a reply).
     Frost creeps over the digits in the last 10 minutes; frozen at 0.
     Greyed out while a turn is running (the turn refreshes it anyway).
+    Back at 60 when the turn ends: a fire glow, or a thaw if it was frosting
+    over or frozen.
 - STATUS: one word for what Claude is doing, a dot, and the turn's elapsed time.
-- Stats update live during a turn (at most every 4 seconds) and on every reply.
+- Stats are read every 2 seconds, during a turn too, and on every reply.
 - Every chip shows from the start (dashes until measured) and keeps a fixed
   width, so the band never jumps around.
 - Limits and each session's last reply, hit rate and speed are remembered, so

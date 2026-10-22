@@ -2,7 +2,7 @@
 
 The Claude desktop app's animated Clawd, living in a band above the prompt box with your session's stats and a sky that changes through the day.
 
-Version **1.3.0**. The full feature list is in [FEATURES.txt](FEATURES.txt).
+Version **1.4.0**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 
 ## What's on the band
 
@@ -24,7 +24,7 @@ Version **1.3.0**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 - **CACHE**: minutes before the prompt cache goes cold. Frost creeps over it in the last 10 minutes.
 - **STATUS**: what Claude is doing right now, with the turn's elapsed time.
 
-Stats update live during a turn, at most every 4 seconds. Chips keep a fixed width, so the band doesn't jump around.
+Stats are read every 2 seconds, during a turn too. When a turn ends, CACHE is back at 60 with a fire glow, or a thaw if it was frosting over. Chips keep a fixed width, so the band doesn't jump around.
 
 **Right: the sky and Clawd.**
 

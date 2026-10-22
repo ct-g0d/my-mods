@@ -16,6 +16,8 @@ declare module 'claude-code' {
       tps: number
       lastReply: number
       turnStart: number
+      warmed: number
+      warmKind: 'glow' | 'thaw'
     }
   }
 }
