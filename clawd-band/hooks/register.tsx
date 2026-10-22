@@ -4,9 +4,9 @@ import type { EngineInterface as Engine, Register } from 'claude-code'
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, fade, forceDark, forceLight, isNight, noteSvg, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
+import { BAR_HEIGHT, FADE_S, NIGHT_BG, SLEEP_W, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
 import type { Svg as Drawing } from './design'
-import { coldUsd, duration, parseDuration, pingUsd, readWarm, tok, usd } from './cache'
+import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
 
 // A finishing form loops whole for at least this long.
@@ -17,8 +17,6 @@ const BIG_TURN_MS = 60000
 const CACHE_TTL_MS = 60 * 60 * 1000
 // A tool's end waits this long before Clawd goes back to Thinking, so a run of quick tools keeps one form.
 const SETTLE_MS = 1500
-// How long a popup over the band stays.
-const NOTE_MS = 8000
 
 const form = atom({ plugin: 'clawd-band', key: 'form' } as const, 'Idle')
 // When the shown minute began being shown; the clock's markup is built from it alone.
@@ -33,18 +31,6 @@ const hit = atom({ plugin: 'clawd-band', key: 'hit' } as const, -1)
 const tps = atom({ plugin: 'clawd-band', key: 'tps' } as const, -1)
 const lastReply = atom({ plugin: 'clawd-band', key: 'lastReply' } as const, 0)
 const turnStart = atom({ plugin: 'clawd-band', key: 'turnStart' } as const, 0)
-// When /keepwarm last warmed the cache; its effect plays for WARM_S seconds from then.
-const warmed = atom({ plugin: 'clawd-band', key: 'warmed' } as const, 0)
-// Which effect that /keepwarm plays: a fire glow when the cache was fine, a thaw when it was chilling.
-const warmKind = atom({ plugin: 'clawd-band', key: 'warmKind' } as const, 'glow' as 'glow' | 'thaw')
-// When /keepwarm's auto window ends; 0 while it is off. Kept in the session's state so a reload keeps it.
-const auto = atom({ plugin: 'clawd-band', key: 'auto' } as const, 0)
-// The popup over the band: /keepwarm's answers and auto mode giving up. Empty while none shows.
-const note = atom({ plugin: 'clawd-band', key: 'note' } as const, { text: '', at: 0 })
-
-// Auto keepwarm pings this long after the last reply, ten minutes before the cache would go cold.
-const PING_AFTER_MS = 50 * 60 * 1000
-const MAX_RETRIES = 3
 // A cold send over this many tokens of context is stopped once with its price.
 const GUARD_TOKENS = 50000
 // Prompts no person sent, so nobody could send them again after the guard stopped one.
@@ -125,12 +111,6 @@ let sleepChangedAt = 0
 // This session's key in the store: its first launch, which stays the same when it is resumed.
 let sessionKey = ''
 
-// The auto ping's timer, whether a ping is out, and how many times a busy API has been retried.
-let timer: { cancel: () => void } | null = null
-let inFlight = false
-let retries = 0
-// After compaction a fork would re-write the new context, so auto waits for the next reply.
-let compacted = false
 // The reply whose cold cache the guard last warned about; the next send after it goes through.
 let ackedAt = 0
 // The form on screen, kept here so busy() can keep it without a read.
@@ -140,84 +120,6 @@ let settle: { cancel: () => void } | null = null
 // The status drawing and what it was built from: rebuilt only when the word or the turn changes, since
 // its turn timer counts up on its own.
 let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg('', false) }
-
-type Warmed = { ok: boolean; text: string; retry?: boolean; waitForTurn?: boolean }
-
-// Forks the conversation so the API reads it from the prompt cache, keeping it warm another hour.
-// Says what the ping read and cost, and plays the glow, or the thaw when the cache was chilling.
-async function warm($: Engine): Promise<Warmed> {
-  const repliedAt = await read($, lastReply)
-  const left = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - Date.now()) / 60000) : null
-  inFlight = true
-  const r = await $.model.fork({ prompt: 'Reply with just: ok' }).finally(() => (inFlight = false))
-  if (!r.isAnswered && r.reason === 'nothing-to-fork') return { ok: false, waitForTurn: true, text: 'Nothing to keep warm yet: no reply in this conversation.' }
-  if (!r.isAnswered && r.reason === 'api-error') {
-    return { ok: false, retry: r.status === null || r.status === 429 || r.status >= 500, text: `Could not warm the cache: API error${r.status === null ? ', no response' : ` ${r.status}`}.` }
-  }
-  if (!r.isAnswered && r.reason === 'aborted') return { ok: false, text: 'Could not warm the cache: the ping was interrupted.' }
-  // Answered, or answered with no text: either way the request went through the cache.
-  const u = r.usage
-  const model = await $.session.model()
-  const now = Date.now()
-  await update($, lastReply, () => now)
-  await save($)
-  if (!readWarm(u)) return { ok: false, text: `The cache was already gone: the ping re-wrote ${tok(u.cache_creation_input_tokens)} tokens for ${usd(pingUsd(model, u))}.` }
-  await update($, warmKind, () => (left !== null && left <= ICE_MINUTES ? 'thaw' : 'glow'))
-  await update($, warmed, () => now)
-  $.clock.after(WARM_S * 1000 + 100, async () => {
-    if ((await read($, warmed)) === now) await update($, warmed, () => 0)
-  })
-  const kept = u.cache_read_input_tokens
-  return { ok: true, text: `Cache kept warm: read ${tok(kept)} tokens for ${usd(pingUsd(model, u))} (a cold re-write would be ${usd(coldUsd(model, kept))}), good for another 60m.` }
-}
-
-// Sets the auto ping for PING_AFTER_MS after the last reply, or `wait` from now for a retry, while
-// the window lasts. A turn running, a cold cache or a compaction leaves it to the next turn's end.
-async function arm($: Engine, wait?: number) {
-  timer?.cancel()
-  timer = null
-  if (wait === undefined) retries = 0
-  const until = await read($, auto)
-  const now = Date.now()
-  if (!until) return
-  if (now >= until) return update($, auto, () => 0)
-  const repliedAt = await read($, lastReply)
-  if (!repliedAt || compacted || isWorking || now >= repliedAt + CACHE_TTL_MS) return
-  const at = Math.min(until, wait !== undefined ? now + wait : repliedAt + PING_AFTER_MS)
-  timer = $.clock.after(Math.max(1000, at - now), () => void autoPing($))
-}
-
-async function autoPing($: Engine) {
-  timer = null
-  if (isWorking || inFlight) return
-  const until = await read($, auto)
-  if (!until || Date.now() >= until) return arm($)
-  const repliedAt = await read($, lastReply)
-  const r = await warm($)
-  if (r.ok) return arm($)
-  if (r.waitForTurn) return
-  if (r.retry && retries < MAX_RETRIES) {
-    const wait = 60000 * 2 ** retries
-    // Only while a retry can still land a minute before the cache goes cold.
-    if (Date.now() + wait < repliedAt + CACHE_TTL_MS - 60000) {
-      retries++
-      return arm($, wait)
-    }
-  }
-  await update($, auto, () => 0)
-  await say($, `Auto keepwarm stopped. ${r.text}`)
-}
-
-async function autoStatus($: Engine): Promise<string> {
-  const until = await read($, auto)
-  const now = Date.now()
-  if (!until || now >= until) return 'Auto keepwarm is off. /keepwarm 6h (or 90m) turns it on; bare /keepwarm warms the cache once now.'
-  const repliedAt = await read($, lastReply)
-  const next = !repliedAt || compacted ? 'waiting for the next reply'
-    : now >= repliedAt + CACHE_TTL_MS ? 'cold now, starts after the next reply'
-    : `next ping in ${duration(Math.min(until, repliedAt + PING_AFTER_MS) - now)}`
-  return `Auto keepwarm on for ${duration(until - now)} more, ${next}.`
-}
 
 type Saved = { lastReply?: number; hit?: number; tps?: number }
 
@@ -295,42 +197,6 @@ async function react($: Engine, name: string, reps = 1) {
 // Plays a finishing form for FINISH_MS, rounded up to whole loops: one loop if it is longer already.
 const finish = ($: Engine, name: string) => react($, name, Math.ceil(FINISH_MS / (DURATION_MS[name] ?? 3000)))
 
-// Shows `text` in a popup row over the band for NOTE_MS, in the band's own type.
-async function say($: Engine, text: string) {
-  const at = Date.now()
-  await update($, note, () => ({ text, at }))
-  $.clock.after(NOTE_MS, async () => {
-    if ((await read($, note)).at === at) await update($, note, () => ({ text: '', at: 0 }))
-  })
-}
-
-// /keepwarm's answer. Bare, warms the cache once now; with a window such as 6h, keeps it warm
-// through every break in it. Once the cache has gone cold there is nothing to keep: warming would
-// pay for the same rebuild the next message pays anyway, so a one-off declines.
-async function keepwarm($: Engine, word: string): Promise<string> {
-  if (word === 'off') {
-    timer?.cancel()
-    timer = null
-    await update($, auto, () => 0)
-    return 'Auto keepwarm is off.'
-  }
-  if (word === 'status') return await autoStatus($)
-  if (word) {
-    const ms = parseDuration(word)
-    if (!ms) return '/keepwarm takes a window such as 6h or 90m, off, or status; bare, it warms the cache once now.'
-    await update($, auto, () => Date.now() + ms)
-    await arm($)
-    return `Auto keepwarm on for ${duration(ms)}: a ping 50m after each reply keeps the cache read, not re-written. ${await autoStatus($)}`
-  }
-  const repliedAt = await read($, lastReply)
-  if (repliedAt && Date.now() >= repliedAt + CACHE_TTL_MS) {
-    return 'The cache has already gone cold. Your next message rebuilds it anyway, so warming it now would only pay for that rebuild early.'
-  }
-  const r = await warm($)
-  await arm($)
-  return r.text
-}
-
 export const register: Register = on => {
   isWorking = false
   tools = 0
@@ -338,11 +204,6 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ctxdebug', description: 'TEMP: show what the session reports about context' })
-    await $.command.register({
-      name: 'keepwarm',
-      description: 'Keep the prompt cache warm: bare warms it once now; 6h or 90m keeps it warm through breaks; off; status',
-      argumentHint: '[6h | 90m | off | status]',
-    })
     show($, 'Idle')
     await update($, doing, () => '')
     await update($, time, () => Date.now())
@@ -362,8 +223,6 @@ export const register: Register = on => {
       await update($, context, () => Math.round(usage.context.percent!))
     }
     await restore($, usage.startedAt)
-    // A reload keeps the auto window in the session's state but drops its timer.
-    await arm($)
     refreshParts($)
     $.clock.every(1000, async () => {
       const now = Date.now()
@@ -402,8 +261,6 @@ export const register: Register = on => {
       }
     }
     isWorking = true
-    timer?.cancel()
-    timer = null
     tools = 0
     await update($, turnStart, () => Date.now())
     await update($, doing, () => 'Thinking|')
@@ -439,12 +296,6 @@ export const register: Register = on => {
     return result
   })
 
-  // Its reply pops up over the band rather than as a line in the transcript.
-  on('command.run', { command: 'keepwarm' }, async ($, e) => {
-    await say($, await keepwarm($, String(e.args ?? '').trim()))
-    return {}
-  })
-
   on('command.run', { command: 'ctxdebug' }, async $ => {
     const u = await $.session.usage({ breakdown: 'summary' })
     const b = u.context.breakdown
@@ -452,11 +303,6 @@ export const register: Register = on => {
   })
 
   on('session.compact', async ($, e, next) => {
-    if (e.agentId === undefined) {
-      compacted = true
-      timer?.cancel()
-      timer = null
-    }
     const before = await read($, doing)
     await update($, doing, () => 'Compacting|')
     try {
@@ -505,9 +351,7 @@ export const register: Register = on => {
       finish($, e.isAborted ? 'Sad' : e.durationMs > BIG_TURN_MS ? 'BigDone' : 'Done')
       await flushStats($)
       await save($)
-      compacted = false
       ackedAt = 0
-      await arm($)
       }
 
     return next(e)
@@ -529,12 +373,8 @@ export const register: Register = on => {
       const rate = await read($, hit)
       const speed = await read($, tps)
       const repliedAt = await read($, lastReply)
-      const warmedAt = await read($, warmed)
-      const warmedKind = await read($, warmKind)
       const startedAt = await read($, turnStart)
       const label = await read($, doing)
-      const autoUntil = await read($, auto)
-      const shout = await read($, note)
 
       const cacheLeft = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - now) / 60000) : null
       const verb = label.split('|')[0]
@@ -556,8 +396,6 @@ export const register: Register = on => {
       const stats = statsSvg({
         working,
         cacheMinutes: cacheLeft,
-        warm: warmedAt && now - warmedAt < WARM_S * 1000 ? { kind: warmedKind, ago: (now - warmedAt) / 1000 } : undefined,
-        auto: autoUntil > now,
         cost: spent || undefined,
         limit: used >= 0 ? used : undefined,
         week: weekly >= 0 ? weekly : undefined,
@@ -572,15 +410,7 @@ export const register: Register = on => {
       const tone = period?.dark ? forceDark : forceLight
       const bg = period?.bg ?? NIGHT_BG
 
-      const popup = shout.text ? noteSvg('KEEPWARM', shout.text) : null
-
-      // The popup row sits over the band in its tint and type. Its slot is always there, so showing it
-      // never moves the band's own drawings or restarts them.
       return (
-        <Box flexDirection="column">
-          <Box display={popup ? 'flex' : 'none'} flexDirection="row" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs" marginBottom={1}>
-            {popup && <Svg source={night ? dim(forceDark(popup.source), 0.6) : tone(popup.source)} alt={`clawd-band: ${shout.text}`} width={popup.width} height={popup.height} />}
-          </Box>
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
           <Box flexDirection="row" alignItems="center" gap={1}>
             <Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} />
@@ -596,7 +426,6 @@ export const register: Register = on => {
             {/* Asleep he holds still, dimmed; awake at night he is drawn as by day. */}
             <Svg source={asleep ? fade(FORMS.Still ?? '', 1, 0.8, sleepChangedAt ? 0 : FADE_S) : (FORMS[name] ?? FORMS.Idle)} alt={`Clawd: ${name}`} width={CLAWD_W} height={BAR_HEIGHT} isInteractive />
           </Box>
-        </Box>
         </Box>
       )
       } catch (err) {

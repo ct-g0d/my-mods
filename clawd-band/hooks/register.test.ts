@@ -16,8 +16,8 @@ const band = (surface: 'desktop' | 'terminal') =>
     props: { hasSurvey: false, maxRows: 10, bodyColumns: 80 },
   }) as any
 
-// The band's own row, under the popup's slot.
-const row = (tree: any) => tree.children[1]
+// The band's own row.
+const row = (tree: any) => tree
 
 withClawd('desktop: Clawd idles on one looping drawing, and holds still asleep', async ($, on) => {
   on('ui.render', pass)
@@ -219,61 +219,19 @@ test('desktop: CTX shows before the first reply, estimated from the breakdown', 
   expect(json).toContain('>CTX<')
 })
 
-// /keepwarm and the cold-send guard, against a mocked fork, model and context.
-// /keepwarm answers in a popup over the band; this reads the one showing.
-const popup = (node: any): string | undefined =>
-  node?.props?.alt?.startsWith('clawd-band: ') ? node.props.alt.slice('clawd-band: '.length) : (node?.children ?? []).map(popup).find(Boolean)
-const keepwarmSetup = (on: any, fork: any, tokens = 100000, store: any = {}) => {
+// The cold-send guard, against a mocked model and context.
+const guardSetup = (on: any, tokens = 100000, store: any = {}) => {
   mock.store(on, store)
   on('session.start', async (_$: any, e: any) => ({ cwd: e.cwd }))
   on('command.register' as any, async () => ({ value: undefined }) as any)
   on('ui.render', pass)
-  on('model.fork' as any, async () => ({ value: fork }) as any)
   on('session.model' as any, async () => ({ value: 'claude-opus-5-5' }) as any)
   on('session.usage' as any, async () => ({ value: { startedAt: 1, context: { window: 1000000, tokens }, rateLimits: [] } }) as any)
 }
-const keepwarm = async ($: any, args?: string) => {
-  const r = await $.command.run({ command: 'keepwarm', args } as any)
-  expect(r.text).toBeUndefined()
-  return popup(await $.ui.render(band('desktop')))
-}
-const usage = (read: number, write: number) => ({ input_tokens: 10, output_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write })
-
-test('keepwarm: a warm ping prices itself and glows', async ($, on) => {
-  keepwarmSetup(on, { isAnswered: true, text: 'ok', usage: usage(120000, 20) })
-  const text = await keepwarm($)
-  expect(text).toContain('read 120k tokens for $0.02')
-  expect(text).toContain('a cold re-write would be $0.96')
-  expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain('url(#cb-flicker)')
-})
-
-test('keepwarm: a ping that re-wrote the cache says so and does not glow', async ($, on) => {
-  keepwarmSetup(on, { isAnswered: true, text: 'ok', usage: usage(0, 120000) })
-  const text = await keepwarm($)
-  expect(text).toContain('already gone')
-  expect(JSON.stringify(await $.ui.render(band('desktop')))).not.toContain('url(#cb-flicker)')
-})
-
-test('keepwarm: an interrupted ping is a failure, not a glow', async ($, on) => {
-  keepwarmSetup(on, { isAnswered: false, reason: 'aborted', usage: usage(0, 0) })
-  const text = await keepwarm($)
-  expect(text).toContain('interrupted')
-  expect(JSON.stringify(await $.ui.render(band('desktop')))).not.toContain('url(#cb-flicker)')
-})
-
-test('keepwarm: a window turns AUTO on in the chip, off turns it back', async ($, on) => {
-  keepwarmSetup(on, { isAnswered: true, text: 'ok', usage: usage(120000, 20) })
-  await keepwarm($)
-  expect((await keepwarm($, '6h'))).toContain('next ping in 50m')
-  expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain('>AUTO<')
-  expect((await keepwarm($, 'off'))).toContain('off')
-  expect(JSON.stringify(await $.ui.render(band('desktop')))).not.toContain('>AUTO<')
-  expect((await keepwarm($, 'soon'))).toContain('takes a window')
-})
 
 test('guard: a cold send is stopped once with its price, the resend goes through', async ($, on) => {
   // The session resumes with its last reply two hours ago.
-  keepwarmSetup(on, { isAnswered: true, text: 'ok', usage: usage(0, 0) }, 100000, { 's:1': { lastReply: Date.now() - 2 * 60 * 60 * 1000 } })
+  guardSetup(on, 100000, { 's:1': { lastReply: Date.now() - 2 * 60 * 60 * 1000 } })
   on('prompt.submit', async (_$: any, e: any) => ({ text: e.text }))
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true } as any)
   const first: any = await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' } } as any)

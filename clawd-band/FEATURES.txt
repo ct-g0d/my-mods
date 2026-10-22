@@ -1,4 +1,4 @@
-CLAWD BAND 1.2.0 - FEATURES
+CLAWD BAND 1.3.0 - FEATURES
 ===========================
 
 THE BAND
@@ -90,22 +90,10 @@ THE SKY BY NIGHT (23:15 - 05:30)
   top-left to bottom-right on random passes, fading out at the edges.
 
 COMMANDS
-- /keepwarm: re-sends the conversation so the prompt cache stays warm another
-  hour, and says what the ping cost against a cold re-write. Plays a fire glow
-  on CACHE, or a thaw if it was frosting over. Declines if the cache has
-  already gone cold. A ping that finds the cache already gone says so, with
-  no glow.
-- Every /keepwarm reply pops up in a row over the band (8 seconds), in the
-  band's tint and type, not as a line in the transcript.
-- /keepwarm 6h (or 90m, 1h30m): auto mode. Pings 50m after each reply for the
-  whole window, so breaks never cost a cold re-write. CACHE reads AUTO while
-  it is on. Retries a busy API up to 3 times; stops with a popup if a ping
-  fails or finds the cache gone. Waits for the next reply after compaction or
-  a cold cache. /keepwarm off, /keepwarm status.
+- /ctxdebug: temporary; prints what the session reports about context.
 
 COLD-SEND GUARD
 - A message onto a cold cache with over 50k tokens of context is stopped once,
   showing how long it has been cold and what the re-write will cost. Sending
   it again goes through. Scheduled, background and other-session prompts are
   never stopped.
-- /ctxdebug: temporary; prints what the session reports about context.

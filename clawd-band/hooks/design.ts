@@ -17,7 +17,7 @@ const STYLE =
   `.soft{font-size:13px;font-weight:500;fill:var(--muted)}.tick{font-size:7px;font-weight:600;fill:var(--muted)}` +
   `.track{fill:var(--track)}` +
   `.lvl-ok{fill:#43A85C}.lvl-mid{fill:var(--ink)}.lvl-high{fill:#E2A526}.lvl-max{fill:#DC4A3D}` +
-  `.dot{fill:var(--accent)}.idle{fill:var(--muted)}.msg{font-size:13px;font-weight:500;fill:var(--ink)}` +
+  `.dot{fill:var(--accent)}.idle{fill:var(--muted)}` +
   `</style>`
 
 const LABEL_Y = 15
@@ -403,20 +403,6 @@ export function statusSvg(state: string, working: boolean, elapsed?: number): Sv
   return svg(CHIP_GAP + part.width, part.body)
 }
 
-const NOTE_LINE = 17
-
-// A popup in the band's own type: a small title over the message, wrapped to `maxW`.
-export function noteSvg(title: string, text: string, maxW = 640): Svg {
-  const lines: string[] = []
-  for (const word of text.split(' ')) {
-    const last = lines[lines.length - 1]
-    if (last !== undefined && textWidth(`${last} ${word}`, 13, 0, 500) <= maxW) lines[lines.length - 1] = `${last} ${word}`
-    else lines.push(word)
-  }
-  const width = Math.max(textWidth(title, 8.5, 0.09), ...lines.map(l => textWidth(l, 13, 0, 500)))
-  const body = `<text class="label" x="0" y="${LABEL_Y}">${esc(title)}</text>` + lines.map((l, i) => `<text class="msg" x="0" y="${VALUE_Y + i * NOTE_LINE}">${esc(l)}</text>`).join('')
-  return svg(width + 2, body, BAR_HEIGHT + (lines.length - 1) * NOTE_LINE)
-}
 
 // Night runs from 23:15 to 05:30: the band goes dark whatever the system's theme, and Clawd sleeps.
 export function isNight(ms: number): boolean {

@@ -1,4 +1,4 @@
-// Prompt cache prices and the arithmetic /keepwarm and the cold-send guard show. The table is
+// Prompt cache prices and the arithmetic the cold-send guard shows. The table is
 // cache-tax's (Karan Bansal, MIT): $ per million tokens, [cache read, 1h cache write, output],
 // list prices October 2026, more specific families first.
 const PRICES: Array<[string | RegExp, number, number, number]> = [
@@ -38,24 +38,8 @@ export function coldUsd(model: string, tokens: number): number | null {
   return p ? (tokens * p[1]) / 1e6 : null
 }
 
-/** Everything a fork bills: the cache read, any write, uncached input at the base rate (half the 1h write rate), and the output. */
-export function pingUsd(model: string, u: Usage): number | null {
-  const p = priceOf(model, u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens)
-  return p ? (u.cache_read_input_tokens * p[0] + u.cache_creation_input_tokens * p[1] + (u.input_tokens * p[1]) / 2 + u.output_tokens * p[2]) / 1e6 : null
-}
-
-/** A warm ping reads the prefix and writes only its own message; writing a tenth of the read or more means the prefix was gone. */
-export const readWarm = (u: Usage) => u.cache_read_input_tokens > 0 && u.cache_creation_input_tokens < 0.1 * u.cache_read_input_tokens
-
 export const usd = (n: number | null) => (n === null ? '$?' : `$${n >= 100 ? n.toFixed(0) : n.toFixed(2)}`)
 export const tok = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
-
-/** "6h", "90m" or "1h30m" in milliseconds; null for anything else. */
-export function parseDuration(text: string): number | null {
-  const m = /^(?:(\d+)h)?(?:(\d+)m)?$/.exec(text.trim())
-  if (!m || (m[1] === undefined && m[2] === undefined)) return null
-  return (Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60000
-}
 
 export function duration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 60000))

@@ -16,10 +16,6 @@ declare module 'claude-code' {
       tps: number
       lastReply: number
       turnStart: number
-      warmed: number
-      warmKind: 'glow' | 'thaw'
-      auto: number
-      note: { text: string; at: number }
     }
   }
 }
