@@ -1,1 +1,1 @@
-{ "name": "clawd-band", "version": "1.6.4", "description": "The desktop app's own animated Clawd, cycling through its forms above the prompt box.", "types": "./types/index.d.ts" }
+{ "name": "clawd-band", "version": "1.6.5", "description": "The desktop app's own animated Clawd, cycling through its forms above the prompt box.", "types": "./types/index.d.ts" }

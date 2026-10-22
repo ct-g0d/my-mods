@@ -46,6 +46,9 @@ const CLAWD_W = (WIDTH * BAR_HEIGHT) / HEIGHT
 const CELL_PX = 7.8
 // The band's own padding and border, both sides, in CSS pixels.
 const BAND_PAD_PX = 24
+// Room kept clear beside the sky, as the desktop's padding and gaps run a little over the estimate: a piece
+// leaves a touch early rather than run under the sky.
+const SAFETY_PX = 32
 
 // The context bar's colours, by /context's row names; any other used row is grey.
 const PART_COLOR: Record<string, string> = {
@@ -470,7 +473,7 @@ export const register: Register = on => {
       // A narrow band never shrinks its drawings: it leaves out the status, then HIT, TOK/S, CACHE, the
       // session pair and the limits, one by one, until what is left fits beside the sky and Clawd. The
       // gaps are 1 cell, 2 cells and at least 1 more between the two sides.
-      const room = (e.props.bodyColumns + 5 - 4) * CELL_PX - BAND_PAD_PX - clock.width - SLEEP_W - CLAWD_W
+      const room = (e.props.bodyColumns + 5 - 4) * CELL_PX - BAND_PAD_PX - SAFETY_PX - clock.width - SLEEP_W - CLAWD_W
       let drop = 0
       let stats = statsSvg(base)
       const showStatus = stats.width + word.width <= room
@@ -497,7 +500,7 @@ export const register: Register = on => {
           {/* Every drawing keeps its own size. Until the desktop reports a new width (it waits a moment
               after a resize) the stats are cut off at their edge, never squeezed, and the sky and Clawd
               never give way. */}
-          <Box flexDirection="row" alignItems="center" gap={1} minWidth={0} overflow="hidden">
+          <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1} minWidth={0} overflow="hidden">
             <Box flexShrink={0}><Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} /></Box>
             <Box flexDirection="row" alignItems="center" flexShrink={0}>
               <Svg source={night ? dim(forceDark(statsSource), 0.6) : tone(statsSource)} alt="Session stats" width={drawnWidth(statsSource) || stats.width} height={stats.height} />
