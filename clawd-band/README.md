@@ -2,7 +2,7 @@
 
 The Claude desktop app's animated Clawd, living in a band above the prompt box with your session's stats and a sky that changes through the day.
 
-Version **1.1.0**. The full feature list is in [FEATURES.txt](FEATURES.txt).
+Version **1.1.1**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 
 ## What's on the band
 
@@ -49,7 +49,7 @@ At night (23:15–05:30) the band goes dark whatever your theme. A crescent moon
 
 ## Commands
 
-- `/keepwarm`: re-sends the conversation so the prompt cache stays warm for another hour, and says what the ping cost against a cold re-write. It shows a fire glow on CACHE, or a thaw if the cache was frosting over. It declines if the cache has already gone cold.
+- `/keepwarm`: re-sends the conversation so the prompt cache stays warm for another hour, and says what the ping cost against a cold re-write. It shows a fire glow on CACHE, or a thaw if the cache was frosting over. It declines if the cache has already gone cold. Its replies pop up as a toast over the transcript.
 - `/keepwarm 6h` (or `90m`): keeps the cache warm through every break in that window, pinging 50 minutes after each reply; CACHE reads AUTO meanwhile. `/keepwarm off` and `/keepwarm status`.
 - Cold-send guard: a message onto a cold cache with over 50k tokens of context is stopped once with what the re-write will cost; send it again to pay it.
 - `/ctxdebug`: temporary. It prints what the session reports about context.

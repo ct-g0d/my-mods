@@ -290,6 +290,33 @@ function lookLater($: Engine) {
   })
 }
 
+// /keepwarm's answer. Bare, warms the cache once now; with a window such as 6h, keeps it warm
+// through every break in it. Once the cache has gone cold there is nothing to keep: warming would
+// pay for the same rebuild the next message pays anyway, so a one-off declines.
+async function keepwarm($: Engine, word: string): Promise<string> {
+  if (word === 'off') {
+    timer?.cancel()
+    timer = null
+    await update($, auto, () => 0)
+    return 'Auto keepwarm is off.'
+  }
+  if (word === 'status') return await autoStatus($)
+  if (word) {
+    const ms = parseDuration(word)
+    if (!ms) return '/keepwarm takes a window such as 6h or 90m, off, or status; bare, it warms the cache once now.'
+    await update($, auto, () => Date.now() + ms)
+    await arm($)
+    return `Auto keepwarm on for ${duration(ms)}: a ping 50m after each reply keeps the cache read, not re-written. ${await autoStatus($)}`
+  }
+  const repliedAt = await read($, lastReply)
+  if (repliedAt && Date.now() >= repliedAt + CACHE_TTL_MS) {
+    return 'The cache has already gone cold. Your next message rebuilds it anyway, so warming it now would only pay for that rebuild early.'
+  }
+  const r = await warm($)
+  await arm($)
+  return r.text
+}
+
 export const register: Register = on => {
   isWorking = false
   tools = 0
@@ -399,32 +426,10 @@ export const register: Register = on => {
     return result
   })
 
-  // Bare, warms the cache once now; with a window such as 6h, keeps it warm through every break in
-  // it. Once the cache has gone cold there is nothing to keep: warming would pay for the same rebuild
-  // the next message pays anyway, so a one-off declines and a window waits for the next reply.
+  // Its reply pops up as a toast over the transcript rather than a line in it.
   on('command.run', { command: 'keepwarm' }, async ($, e) => {
-    const word = String(e.args ?? '').trim()
-    if (word === 'off') {
-      timer?.cancel()
-      timer = null
-      await update($, auto, () => 0)
-      return { text: 'Auto keepwarm is off.' }
-    }
-    if (word === 'status') return { text: await autoStatus($) }
-    if (word) {
-      const ms = parseDuration(word)
-      if (!ms) return { text: '/keepwarm takes a window such as 6h or 90m, off, or status; bare, it warms the cache once now.' }
-      await update($, auto, () => Date.now() + ms)
-      await arm($)
-      return { text: `Auto keepwarm on for ${duration(ms)}: a ping 50m after each reply keeps the cache read, not re-written. ${await autoStatus($)}` }
-    }
-    const repliedAt = await read($, lastReply)
-    if (repliedAt && Date.now() >= repliedAt + CACHE_TTL_MS) {
-      return { text: 'The cache has already gone cold. Your next message rebuilds it anyway, so warming it now would only pay for that rebuild early.' }
-    }
-    const r = await warm($)
-    await arm($)
-    return { text: r.text }
+    $.ui.toast(await keepwarm($, String(e.args ?? '').trim()), { timeoutMs: 8000 })
+    return {}
   })
 
   on('command.run', { command: 'ctxdebug' }, async $ => {

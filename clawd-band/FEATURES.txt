@@ -1,4 +1,4 @@
-CLAWD BAND 1.1.0 - FEATURES
+CLAWD BAND 1.1.1 - FEATURES
 ===========================
 
 THE BAND
@@ -93,6 +93,8 @@ COMMANDS
   on CACHE, or a thaw if it was frosting over. Declines if the cache has
   already gone cold. A ping that finds the cache already gone says so, with
   no glow.
+- Every /keepwarm reply pops up as a toast over the transcript (8 seconds),
+  not a line in it.
 - /keepwarm 6h (or 90m, 1h30m): auto mode. Pings 50m after each reply for the
   whole window, so breaks never cost a cold re-write. CACHE reads AUTO while
   it is on. Retries a busy API up to 3 times; stops with a toast if a ping

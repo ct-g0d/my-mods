@@ -193,8 +193,12 @@ test('desktop: CTX shows before the first reply, estimated from the breakdown', 
 })
 
 // /keepwarm and the cold-send guard, against a mocked fork, model and context.
+// /keepwarm answers in a toast; this keeps each one it shows.
+let toasts: string[] = []
 const keepwarmSetup = (on: any, fork: any, tokens = 100000, store: any = {}) => {
+  toasts = []
   mock.store(on, store)
+  on('ui.toast' as any, async (_$: any, e: any) => { toasts.push(e.text); return { value: undefined } })
   on('session.start', async (_$: any, e: any) => ({ cwd: e.cwd }))
   on('command.register' as any, async () => ({ value: undefined }) as any)
   on('ui.render', pass)
@@ -202,11 +206,16 @@ const keepwarmSetup = (on: any, fork: any, tokens = 100000, store: any = {}) => 
   on('session.model' as any, async () => ({ value: 'claude-opus-5-5' }) as any)
   on('session.usage' as any, async () => ({ value: { startedAt: 1, context: { window: 1000000, tokens }, rateLimits: [] } }) as any)
 }
+const keepwarm = async ($: any, args?: string) => {
+  const r = await $.command.run({ command: 'keepwarm', args } as any)
+  expect(r.text).toBeUndefined()
+  return toasts[toasts.length - 1]
+}
 const usage = (read: number, write: number) => ({ input_tokens: 10, output_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write })
 
 test('keepwarm: a warm ping prices itself and glows', async ($, on) => {
   keepwarmSetup(on, { isAnswered: true, text: 'ok', usage: usage(120000, 20) })
-  const { text } = await $.command.run({ command: 'keepwarm' } as any)
+  const text = await keepwarm($)
   expect(text).toContain('read 120k tokens for $0.02')
   expect(text).toContain('a cold re-write would be $0.96')
   expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain('url(#cb-flicker)')
@@ -214,26 +223,26 @@ test('keepwarm: a warm ping prices itself and glows', async ($, on) => {
 
 test('keepwarm: a ping that re-wrote the cache says so and does not glow', async ($, on) => {
   keepwarmSetup(on, { isAnswered: true, text: 'ok', usage: usage(0, 120000) })
-  const { text } = await $.command.run({ command: 'keepwarm' } as any)
+  const text = await keepwarm($)
   expect(text).toContain('already gone')
   expect(JSON.stringify(await $.ui.render(band('desktop')))).not.toContain('url(#cb-flicker)')
 })
 
 test('keepwarm: an interrupted ping is a failure, not a glow', async ($, on) => {
   keepwarmSetup(on, { isAnswered: false, reason: 'aborted', usage: usage(0, 0) })
-  const { text } = await $.command.run({ command: 'keepwarm' } as any)
+  const text = await keepwarm($)
   expect(text).toContain('interrupted')
   expect(JSON.stringify(await $.ui.render(band('desktop')))).not.toContain('url(#cb-flicker)')
 })
 
 test('keepwarm: a window turns AUTO on in the chip, off turns it back', async ($, on) => {
   keepwarmSetup(on, { isAnswered: true, text: 'ok', usage: usage(120000, 20) })
-  await $.command.run({ command: 'keepwarm' } as any)
-  expect((await $.command.run({ command: 'keepwarm', args: '6h' } as any)).text).toContain('next ping in 50m')
+  await keepwarm($)
+  expect((await keepwarm($, '6h'))).toContain('next ping in 50m')
   expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain('>AUTO<')
-  expect((await $.command.run({ command: 'keepwarm', args: 'off' } as any)).text).toContain('off')
+  expect((await keepwarm($, 'off'))).toContain('off')
   expect(JSON.stringify(await $.ui.render(band('desktop')))).not.toContain('>AUTO<')
-  expect((await $.command.run({ command: 'keepwarm', args: 'soon' } as any)).text).toContain('takes a window')
+  expect((await keepwarm($, 'soon'))).toContain('takes a window')
 })
 
 test('guard: a cold send is stopped once with its price, the resend goes through', async ($, on) => {
