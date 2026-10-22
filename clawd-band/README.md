@@ -2,13 +2,13 @@
 
 The Claude desktop app's animated Clawd, living in a band above the prompt box with your session's stats and a sky that changes through the day.
 
-Version **1.7.2**. The full feature list is in [FEATURES.txt](FEATURES.txt).
+Version **1.7.3**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 
 ## What's on the band
 
 **Left: the clock and stats.**
 
-- **Clock**: a pixel desk clock. It glows blue at night.
+- **Clock**: a pixel desk clock. At night it becomes a bedside clock with red LED digits.
 - **5H / 7D**: your 5-hour and 7-day usage limits, as glowing bars. The bar and its percent change colour as the limit fills:
 
   | Used | Colour |

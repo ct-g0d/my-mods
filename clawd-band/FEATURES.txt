@@ -1,4 +1,4 @@
-CLAWD BAND 1.7.2 - FEATURES
+CLAWD BAND 1.7.3 - FEATURES
 ===========================
 
 THE BAND
@@ -8,7 +8,8 @@ THE BAND
 
 CLOCK
 - Pixel desk clock showing the time, ticking over each minute.
-- Glows blue instead of orange at night.
+- At night it becomes a bedside clock: red seven-segment digits in the same
+  casing, the colon blinking each second.
 
 SESSION STATS
 - 5H and 7D: your 5-hour and 7-day usage limits as glowing bars with percents.

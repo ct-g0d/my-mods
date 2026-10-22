@@ -1,5 +1,6 @@
 import { FORMS } from './clawd-frames'
 import { DAY_PERIODS, changeOver, changes, crossfade, fade, forceDark, isNight, periodAt, settle, statsSvg, statusSvg } from './design'
+import { bedsideClock } from './pixel-clock'
 import { expect, mock, test } from 'claude-code/testing'
 
 // Clawd's tests run only where its artwork has been generated (see tools/gen.py).
@@ -91,12 +92,17 @@ withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
   expect(clawd.props.height).toBe(40)
 })
 
-test('desktop: the clock sits in a desk-clock casing', async ($, on) => {
+test('desktop: the clock sits in a desk-clock casing, and at night is a bedside clock', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
   const clock = row(tree).children[0].children[0].children[0]
   expect(clock.props.height).toBe(40)
-  expect(clock.props.source).toContain('cb-case')
+  expect(clock.props.source).toContain(isNight(Date.now()) ? 'cb-led' : 'cb-case')
+  // The bedside clock: 88 by 40, red segments, the colon blinking.
+  const bedside = bedsideClock(new Date(2026, 9, 22, 23, 47).getTime())
+  expect([bedside.width, bedside.height]).toEqual([88, 40])
+  expect(bedside.source).toContain('#ff2a1a')
+  expect(bedside.source).toContain('repeatCount="indefinite"')
 })
 
 test('stats: the session chip and the bars do not overlap', async () => {

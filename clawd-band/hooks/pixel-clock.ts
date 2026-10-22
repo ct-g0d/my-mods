@@ -69,9 +69,6 @@ function countingDigit(x0: number, y0: number, count: number, step: number, at: 
   return out
 }
 
-// The clock asleep: moonlit blue digits.
-export const sleepyClock = (source: string) => source.replace('--lit:#F2A65A', '--lit:#8FB4FF')
-
 // The desk clock's casing, screen and lit-segment colours, light and dark.
 const CASE_STYLE =
   `<style>:root{--rim:#B9B6AD;--top:#F4F2EC;--bot:#CFCBC1;--screen:#2A2620;--lit:#F2A65A}` +
@@ -180,4 +177,44 @@ export function meterSvg(percent: number): { source: string; width: number; heig
     width: 39,
     height: 6,
   }
+}
+
+// The night clock: a hotel-room alarm clock, red seven-segment digits glowing on black in a dark casing,
+// the unlit segments faintly showing and the colon blinking each second. Its hour tens stay dark below ten.
+const LED = '#ff2a1a'
+const SEGMENTS: Record<string, string> = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg' }
+const T = 10
+const hSeg = (x1: number, x2: number, y: number) =>
+  `${x1 + T / 2},${y} ${x1 + T},${y - T / 2} ${x2 - T},${y - T / 2} ${x2 - T / 2},${y} ${x2 - T},${y + T / 2} ${x1 + T},${y + T / 2}`
+const vSeg = (x: number, y1: number, y2: number) =>
+  `${x},${y1 + T / 2} ${x + T / 2},${y1 + T} ${x + T / 2},${y2 - T} ${x},${y2 - T / 2} ${x - T / 2},${y2 - T} ${x - T / 2},${y1 + T}`
+const SHAPE: Record<string, string> = { a: hSeg(5, 55, 5), g: hSeg(5, 55, 55), d: hSeg(5, 55, 105), f: vSeg(5, 5, 55), b: vSeg(55, 5, 55), e: vSeg(5, 55, 105), c: vSeg(55, 55, 105) }
+const lit = (on: boolean) => (on ? `fill="${LED}" filter="url(#cb-led)"` : `fill="${LED}" opacity=".07"`)
+const segDigit = (n: string | null, x: number) =>
+  `<g transform="translate(${x} 0) skewX(-6)">` +
+  Object.entries(SHAPE).map(([k, pts]) => `<polygon points="${pts}" ${lit(n !== null && SEGMENTS[n]!.includes(k))}/>`).join('') +
+  `</g>`
+
+export function bedsideClock(ms: number): { source: string; width: number; height: number } {
+  const d = new Date(ms)
+  const h = d.getHours() % 12 || 12
+  const m = d.getMinutes()
+  // The digits are drawn 288 by 122, as on the bedside clock, and set into the band's 88 by 40.
+  const digits =
+    segDigit(h >= 10 ? '1' : null, 0) + segDigit(String(h % 10), 66) +
+    [35, 75].map(y => `<circle cx="141" cy="${y}" r="6" fill="${LED}" filter="url(#cb-led)"><animate attributeName="opacity" values="1;.07" keyTimes="0;.5" calcMode="discrete" dur="2s" repeatCount="indefinite"/></circle>`).join('') +
+    segDigit(String(Math.floor(m / 10)), 160) + segDigit(String(m % 10), 226)
+  // The same casing as the desk clock, in its dark colours.
+  const source =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 40" width="88" height="40">` +
+    `<style>:root{--rim:#0E0D0C;--top:#4A4843;--bot:#2B2A27;--screen:#141210}</style>` + CASE_DEFS +
+    `<defs><filter id="cb-led" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>` +
+    `<rect x=".5" y=".5" width="87" height="39" rx="8" fill="url(#cb-case)" style="stroke:var(--rim)"/>` +
+    `<rect x="1.5" y="1.5" width="85" height="37" rx="7" fill="none" stroke="#fff" stroke-opacity=".35"/>` +
+    `<rect x="5" y="5" width="78" height="30" rx="3.5" style="fill:var(--screen)"/>` +
+    `<rect x="5" y="5" width="78" height="2" rx="1" fill="#000" fill-opacity=".35"/>` +
+    `<g transform="translate(10.1 7) scale(.235)">${digits}</g>` +
+    `<rect x="5" y="5" width="78" height="30" rx="3.5" fill="url(#cb-glass)"/>` +
+    `</svg>`
+  return { source, width: 88, height: 40 }
 }
