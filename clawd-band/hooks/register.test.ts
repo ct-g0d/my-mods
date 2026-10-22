@@ -1,6 +1,6 @@
 import { FORMS } from './clawd-frames'
 import { DAY_PERIODS, changeOver, changes, crossfade, fade, forceDark, isNight, periodAt, settle, statsSvg, statusSvg } from './design'
-import { bedsideClock } from './pixel-clock'
+import { STAGE_LOOKS, clockSvg, lookAt } from './clocks'
 import { expect, mock, test } from 'claude-code/testing'
 
 // Clawd's tests run only where its artwork has been generated (see tools/gen.py).
@@ -92,17 +92,30 @@ withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
   expect(clawd.props.height).toBe(40)
 })
 
-test('desktop: the clock sits in a desk-clock casing, and at night is a bedside clock', async ($, on) => {
+test('desktop: the clock is the stage of the day\'s own, in the same 88 by 40 casing', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
   const clock = row(tree).children[0].children[0].children[0]
-  expect(clock.props.height).toBe(40)
-  expect(clock.props.source).toContain(isNight(Date.now()) ? 'cb-led' : 'cb-case')
-  // The bedside clock: 88 by 40, red segments, the colon blinking.
-  const bedside = bedsideClock(new Date(2026, 9, 22, 23, 47).getTime())
-  expect([bedside.width, bedside.height]).toEqual([88, 40])
-  expect(bedside.source).toContain('#ff2a1a')
-  expect(bedside.source).toContain('repeatCount="indefinite"')
+  expect([clock.props.width, clock.props.height]).toEqual([88, 40])
+  expect(clock.props.source).toContain('viewBox="0 0 88 40"')
+})
+
+test('clock: a look for each stage, from dawn to night, all the same size', () => {
+  const at = (h: number, m: number) => new Date(2026, 9, 22, h, m).getTime()
+  // One time in each of the day's eight periods, then the night's.
+  const stages = [at(6, 0), at(8, 0), at(10, 30), at(12, 30), at(15, 0), at(17, 0), at(19, 30), at(22, 0), at(2, 0)]
+  expect(stages.map(ms => lookAt(ms))).toEqual(STAGE_LOOKS)
+  expect(STAGE_LOOKS).toEqual(['lcd', 'desk', 'desk', 'desk', 'desk', 'desk', 'carbon', 'vfd', 'bedside'])
+  for (const ms of stages) {
+    const clock = clockSvg(ms)
+    expect([clock.width, clock.height]).toEqual([88, 40])
+    expect(clock.source).toContain('viewBox="0 0 88 40"')
+  }
+  // Night: the bedside clock, red segments with the colon blinking.
+  const night = clockSvg(at(23, 47))
+  expect(night.look).toBe('bedside')
+  expect(night.source).toContain('#FF4A30')
+  expect(night.source).toContain('repeatCount="indefinite"')
 })
 
 test('stats: the session chip and the bars do not overlap', async () => {

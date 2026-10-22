@@ -7,7 +7,8 @@ import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
 import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, changeOver, changes, outlined, settle as atNow, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
 import type { Changes, Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
-import { bedsideClock, clockSvg, clockText, costText } from './pixel-clock'
+import { clockText, costText } from './pixel-clock'
+import { clockSvg } from './clocks'
 
 // A finishing form loops whole for at least this long.
 const FINISH_MS = 7000
@@ -414,7 +415,7 @@ export const register: Register = on => {
       const name = await read($, form)
       const now = Date.now()
       const shownAt = (await read($, time)) || now
-      const clock = clockSvg(shownAt)
+      const clock = clockSvg(shownAt, now)
       const spent = await read($, cost)
       const used = await read($, limit)
       const weekly = await read($, week)
@@ -476,7 +477,7 @@ export const register: Register = on => {
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
           {/* Every drawing keeps its own size, and the sky and Clawd never give way. */}
           <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1} minWidth={0} overflow="hidden">
-            <Box flexShrink={0}><Svg source={atNow(night ? bedsideClock(shownAt).source : tone(clock.source), clockS(now))} alt="Clock" width={clock.width} height={clock.height} /></Box>
+            <Box flexShrink={0}><Svg source={atNow(clock.source, clockS(now))} alt="Clock" width={clock.width} height={clock.height} /></Box>
             {/* Short of room the status's slot gives way first, then the stats'; each drawing leaves out
                 what no longer fits by itself (the stats: HIT, TOK/S, CACHE, the session pair, the limits). */}
             <Box flexDirection="row" alignItems="center" flexShrink={1} minWidth={0} overflow="hidden">

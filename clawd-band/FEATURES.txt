@@ -1,4 +1,4 @@
-CLAWD BAND 1.7.3 - FEATURES
+CLAWD BAND 1.8.0 - FEATURES
 ===========================
 
 THE BAND
@@ -7,9 +7,13 @@ THE BAND
 - In a terminal, a small block-character Clawd instead.
 
 CLOCK
-- Pixel desk clock showing the time, ticking over each minute.
-- At night it becomes a bedside clock: red seven-segment digits in the same
-  casing, the colon blinking each second.
+- A different clock for each stage of the day, all in the same casing and
+  ticking over each minute:
+    Dawn                    mint enamel, reflective LCD (12-hour)
+    Morning to Golden hour  cream plastic, amber pixel digits (24-hour)
+    Dusk                    carbon fibre, thin white figures, seconds bar
+    Evening                 piano black, teal vacuum-fluorescent (12-hour)
+    Night                   graphite, red slanted LED bedside clock
 
 SESSION STATS
 - 5H and 7D: your 5-hour and 7-day usage limits as glowing bars with percents.
