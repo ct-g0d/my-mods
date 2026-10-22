@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface as Engine, Register, RenderChildren, SessionMeasureInput } from 'claude-code'
+import type { EngineInterface as Engine, Register, SessionMeasureInput } from 'claude-code'
 
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, inStep, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsPieces, statusSvg } from './design'
+import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, inStep, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
 import type { Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
@@ -42,8 +42,8 @@ const UNATTENDED = new Set(['task-notification', 'scheduled-trigger', 'peer', 'p
 
 // Clawd scaled to the chips' height so the row lines up.
 const CLAWD_W = (WIDTH * BAR_HEIGHT) / HEIGHT
-// How readily a slot gives way beside a sibling that holds at 1: so much more that it gives all its room
-// first. The most the desktop takes.
+// How readily the status's slot gives way beside the stats', which hold at 1: so much more that it gives
+// all its room first. The most the desktop takes.
 const GIVE = 10000
 // How long a fade or roll plays, after which the band redraws plainly.
 const FADE_MS = Math.max(SWAP_S, ROLL_S) * 1000
@@ -466,41 +466,32 @@ export const register: Register = on => {
         hit: rate >= 0 ? rate : undefined,
         tps: speed >= 0 ? speed : undefined,
       }
-      // Each stats piece and the status is a drawing of its own, its markup changing over (a roll, a fade)
-      // as before, and its pulse kept in step across loads.
-      const shown: Record<string, { drawing: Drawing; source: string }> = {}
-      for (const { name, drawing } of [...statsPieces(base), { name: 'status', drawing: word }]) {
-        shown[name] = { drawing, source: inStepOf(name, name === 'status' ? wordSource : swapped(name, drawing.source, now), now) }
-      }
+      const stats = statsSvg(base)
+      // Each drawing's markup changes over (a roll, a fade) as before, its pulse kept in step across loads.
+      const statsSource = inStepOf('stats', swapped('stats', stats.source, now), now)
+      const statusSource = inStepOf('status', wordSource, now)
 
       // By day the band takes the hour's tint and sky; its drawings keep the colours that suit the tint.
       const period = periodAt(now)
       const tone = period?.dark ? forceDark : forceLight
       const bg = period?.bg ?? NIGHT_BG
-      const group = (give: number, ...children: RenderChildren[]) => (
-        <Box flexDirection="row" alignItems="center" flexShrink={give} minWidth={0} overflow="hidden">{children}</Box>
+      const slot = (drawing: Drawing, source: string, alt: string, give: number) => (
+        <Box flexShrink={give} minWidth={0} overflow="hidden">
+          <Svg source={night ? dim(forceDark(source), 0.6) : tone(source)} alt={alt} width={drawing.width} height={drawing.height} />
+        </Box>
       )
-      const slot = (name: string, give: number) => {
-        const { drawing, source } = shown[name]!
-        return (
-          <Box flexShrink={give} minWidth={0} overflow="hidden">
-            <Svg source={night ? dim(forceDark(source), 0.6) : tone(source)} alt={name === 'status' ? `Status: ${state}` : `Stats: ${name}`} width={drawing.width} height={drawing.height} />
-          </Box>
-        )
-      }
 
       return (
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
           {/* Every drawing keeps its own size, and the sky and Clawd never give way. */}
           <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1} minWidth={0} overflow="hidden">
             <Box flexShrink={0}><Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} /></Box>
-            {/* Short of room, the slots give way in this order, each piece fading out as its slot gets
-                narrower than it and back in when there is room again: the status, HIT, TOK/S, CACHE, the
-                session pair, then the limits. Each pair below holds one side at 1 and lets the other give
-                first, which keeps that order whatever the widths. */}
-            {group(1, slot('limits', 1), group(GIVE, slot('session', 1), group(GIVE,
-              group(1, slot('hit', GIVE), group(1, slot('tps', GIVE), slot('cache', 1))),
-              slot('status', GIVE))))}
+            {/* Short of room the status's slot gives way first, then the stats'; each drawing leaves out
+                what no longer fits by itself (the stats: HIT, TOK/S, CACHE, the session pair, the limits). */}
+            <Box flexDirection="row" alignItems="center" flexShrink={1} minWidth={0} overflow="hidden">
+              {slot(stats, statsSource, 'Session stats', 1)}
+              {slot(word, statusSource, `Status: ${state}`, GIVE)}
+            </Box>
           </Box>
           <Box flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
             <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />

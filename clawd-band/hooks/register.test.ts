@@ -276,15 +276,18 @@ for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
   })
 }
 
-test('desktop: each piece is its own drawing that fades itself out when its slot is too narrow', async ($, on) => {
+test('desktop: the band fits the desktop, and its drawings leave pieces out by their own width', async ($, on) => {
   on('ui.render', pass)
   const json = JSON.stringify(await $.ui.render(band('desktop')))
-  for (const name of ['limits', 'session', 'hit', 'tps', 'cache']) expect(json).toContain(`Stats: ${name}`)
-  expect(json).toContain('Status:')
+  // The desktop draws nothing of a tree past 262144 characters.
+  expect(json.length).toBeLessThan(262144)
   expect(json).toContain('preserveAspectRatio=\\"xMinYMid slice\\"')
-  expect(json).toContain('@media (max-width:')
-  // The give-way order rests on the desktop's ceiling for flexShrink.
+  // The status gives way first, then the stats leave out HIT, TOK/S, CACHE, the session pair and the limits.
   expect(json).toContain('\"flexShrink\":10000')
+  const stats = statsSvg({ working: false, cacheMinutes: 45 }).source
+  const order = [...stats.matchAll(/@media \(max-width:([\d.]+)px\)\{\.cb-(\w+)\{opacity:0/g)].map(m => [m[2], Number(m[1])] as const)
+  expect(order.map(([name]) => name)).toEqual(['hit', 'tps', 'cache', 'session', 'limits'])
+  expect(order.every(([, px], k) => k === 0 || px < order[k - 1]![1])).toBe(true)
 })
 
 test('stats: a changed number rolls, a changed word fades; the rest stays put', async () => {

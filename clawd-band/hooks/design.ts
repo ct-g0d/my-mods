@@ -22,7 +22,7 @@ const STYLE =
 
 const LABEL_Y = 15
 const VALUE_Y = 31
-const CHIP_GAP = 22
+const CHIP_GAP = 18
 
 // How wide `text` sets in Claude Sans, from the font's own advance widths.
 function textWidth(text: string, size: number, tracking = 0, weight = 600): number {
@@ -36,18 +36,13 @@ const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 export type Svg = { source: string; width: number; height: number }
 
-// A drawing the band may give less room than its width. It never shrinks: set at its own size from the
-// left, it fades out while its slot is too narrow, and back in once there is room, its own media query
-// keeping watch, so nothing has to guess how wide the band is.
-function piece(width: number, body: string): Svg {
-  const w = Math.ceil(width)
-  const { source } = svg(w, `<g class="cb-piece">${body}</g>`)
+// A drawing the band may give less room than its width. It never shrinks: it sets at its own size from the
+// left, and `css`, media queries on its own width, says what to leave out, so nothing has to guess how
+// wide the band is.
+function squeezable(drawing: Svg, css: string): Svg {
   return {
-    source: source
-      .replace('<svg ', '<svg preserveAspectRatio="xMinYMid slice" ')
-      .replace('</style>', `.cb-piece{transition:opacity ${SWAP_S}s}@media (max-width:${w - 0.5}px){.cb-piece{opacity:0}}</style>`),
-    width: w,
-    height: BAR_HEIGHT,
+    ...drawing,
+    source: drawing.source.replace('<svg ', '<svg preserveAspectRatio="xMinYMid slice" ').replace('</style>', `${css}</style>`),
   }
 }
 
@@ -413,32 +408,41 @@ function statsDraws(stats: Stats): [string, Draw][] {
 const HAIRLINE = `<rect class="track" x="0" y="8" width="1" height="24"/>`
 const STATS_DEFS = METER_DEFS.replace('</defs>', `${ICE_DEFS}${FROST_DEFS}</defs>`)
 
-// The left cluster in one drawing: a hairline after the clock, then the pieces left to right.
+// The left cluster in one drawing: a hairline after the clock, then the pieces left to right. Given less
+// room than its width it never shrinks; its own media queries leave pieces out instead, HIT first, then
+// TOK/S, CACHE, the session pair and the limits, each fading out as the room runs short and back in when
+// it returns, with the pieces after a gap sliding over to close it.
 export function statsSvg(stats: Stats): Svg {
   let x = 15
-  let body = HAIRLINE
-  for (const [, draw] of statsDraws(stats)) {
+  let body = ''
+  const at: Record<string, { x: number; w: number }> = {}
+  for (const [name, draw] of statsDraws(stats)) {
     const part = draw(x)
-    body += part.body
+    body += `<g class="cb-p cb-${name}">${name === 'limits' ? HAIRLINE : ''}${part.body}</g>`
+    at[name] = { x, w: part.width }
     x += part.width + CHIP_GAP
   }
-  return svg(x - CHIP_GAP + 1, STATS_DEFS + body)
-}
-
-// The same pieces as drawings of their own, for a band that may be too narrow for them all: the first
-// carries the hairline after the clock, each after it a chip's gap before it.
-export function statsPieces(stats: Stats): { name: string; drawing: Svg }[] {
-  return statsDraws(stats).map(([name, draw], i) => {
-    const lead = i === 0 ? 15 : CHIP_GAP
-    const part = draw(lead)
-    return { name, drawing: piece(lead + part.width + 1, STATS_DEFS + (i === 0 ? HAIRLINE : '') + part.body) }
-  })
+  const w = Math.ceil(x - CHIP_GAP + 1)
+  const end = (name: string) => at[name]!.x + at[name]!.w + 1
+  const hitGap = at.hit!.w + CHIP_GAP
+  const pairGap = hitGap + at.tps!.w + CHIP_GAP
+  const below = (px: number, css: string) => `@media (max-width:${(px - 0.5).toFixed(1)}px){${css}}`
+  const css =
+    `.cb-p{transition:opacity ${SWAP_S}s,transform ${SWAP_S}s}` +
+    below(w, `.cb-hit{opacity:0}.cb-tps,.cb-cache{transform:translateX(-${hitGap}px)}`) +
+    below(w - hitGap, `.cb-tps{opacity:0}.cb-cache{transform:translateX(-${pairGap}px)}`) +
+    below(w - pairGap, `.cb-cache{opacity:0}`) +
+    below(end('session'), `.cb-session{opacity:0}`) +
+    below(end('limits'), `.cb-limits{opacity:0}`)
+  return squeezable(svg(w, STATS_DEFS + body), css)
 }
 
 // Claude's status, drawn right after the stats, a chip's gap from them.
 export function statusSvg(state: string, working: boolean, elapsed?: number): Svg {
   const part = statusChip(CHIP_GAP - 1, state, working, elapsed)
-  return piece(CHIP_GAP + part.width, part.body)
+  const w = Math.ceil(CHIP_GAP + part.width)
+  // Short of room it fades out whole, and back in when there is room.
+  return squeezable(svg(w, `<g class="cb-p">${part.body}</g>`), `.cb-p{transition:opacity ${SWAP_S}s}@media (max-width:${w - 0.5}px){.cb-p{opacity:0}}`)
 }
 
 

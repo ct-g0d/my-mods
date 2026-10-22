@@ -2,7 +2,7 @@
 
 The Claude desktop app's animated Clawd, living in a band above the prompt box with your session's stats and a sky that changes through the day.
 
-Version **1.7.0**. The full feature list is in [FEATURES.txt](FEATURES.txt).
+Version **1.7.1**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 
 ## What's on the band
 
