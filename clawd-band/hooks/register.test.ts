@@ -22,10 +22,11 @@ const row = (tree: any) => tree
 withClawd('desktop: Clawd idles on one looping drawing, and holds still asleep', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const [left, right] = row(tree).children
+  const [left, around] = row(tree).children
+  const right = around.children[0]
   const clawd = right.children[right.children.length - 1]
   expect(clawd.props.alt).toBe('Clawd: Idle')
-  expect(left.children[0].props.alt).toBe('Clock')
+  expect(left.children[0].children[0].props.alt).toBe('Clock')
   // He looks around inside the drawing, so idling never swaps it.
   expect(FORMS.Idle).toContain('repeatCount="indefinite"')
   expect(FORMS.Still).not.toContain('<animate')
@@ -86,7 +87,7 @@ test("desktop: idle shows the period's own word, or Sleeping at night", async ($
 withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const right = row(tree).children[1]
+  const right = row(tree).children[1].children[0]
   const clawd = right.children[right.children.length - 1]
   expect(clawd.props.height).toBe(40)
 })
@@ -94,7 +95,7 @@ withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {
 test('desktop: the clock sits in a desk-clock casing', async ($, on) => {
   on('ui.render', pass)
   const tree: any = await $.ui.render(band('desktop'))
-  const clock = row(tree).children[0].children[0]
+  const clock = row(tree).children[0].children[0].children[0]
   expect(clock.props.height).toBe(40)
   expect(clock.props.source).toContain('cb-case')
 })
@@ -280,8 +281,9 @@ test('desktop: a narrowing band leaves out the status, then HIT, TOK/S, CACHE, S
   on('ui.render', pass)
   const order: string[] = []
   for (let columns = 200; columns >= 10; columns -= 2) {
-    // A piece just left out is still fading away; what counts is what stays.
-    const json = JSON.stringify(await $.ui.render(band('desktop', columns))).replace(/<g opacity=\\"0\\">.*?<\/g>/g, '')
+    const json = JSON.stringify(await $.ui.render(band('desktop', columns)))
+    // A piece left out takes nothing with it: the rest redraw plainly, with no fade or roll across the jump.
+    expect(json).not.toContain('1;0;0')
     // The sky and Clawd stay whatever the width.
     expect(json).toContain('Clawd:')
     for (const [name, mark] of [['status', 'Status:'], ['hit', '>HIT<'], ['tps', '>TOK/S<'], ['cache', '>CACHE<'], ['session', '>SESSION<'], ['limits', '>5H<']]) {

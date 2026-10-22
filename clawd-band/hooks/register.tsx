@@ -135,6 +135,8 @@ let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg(''
 // Each drawing's last markup and what is shown for it: a changed number rolls to its new value, and a
 // changed word fades out and the new one in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
 let swaps: Record<string, { raw: string; shown: string; at: number }> = {}
+// Which pieces the band last fit; when that changes the rest move along, so they redraw plainly instead.
+let fit = ''
 function swapped(name: string, raw: string, now: number): string {
   const s = swaps[name]
   if (!s) swaps[name] = { raw, shown: raw, at: 0 }
@@ -468,6 +470,8 @@ export const register: Register = on => {
       let stats = statsSvg(base)
       const showStatus = stats.width + word.width <= room
       while (!showStatus && stats.width > room && drop < 5) stats = statsSvg({ ...base, drop: ++drop })
+      if (fit !== `${drop}|${showStatus}`) delete swaps.stats
+      fit = `${drop}|${showStatus}`
 
       const statsSource = swapped('stats', stats.source, now)
 
@@ -477,20 +481,26 @@ export const register: Register = on => {
       const bg = period?.bg ?? NIGHT_BG
 
       return (
-        <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
-          <Box flexDirection="row" alignItems="center" gap={1}>
-            <Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} />
-            <Box flexDirection="row" alignItems="center">
+        <Box flexDirection="row" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
+          {/* Every drawing keeps its own size. Until the desktop reports a new width (it waits a moment
+              after a resize) the stats are cut off at their edge, never squeezed, and the sky and Clawd
+              never give way. */}
+          <Box flexDirection="row" alignItems="center" gap={1} minWidth={0} overflow="hidden">
+            <Box flexShrink={0}><Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} /></Box>
+            <Box flexDirection="row" alignItems="center" flexShrink={0}>
               <Svg source={night ? dim(forceDark(statsSource), 0.6) : tone(statsSource)} alt="Session stats" width={stats.width} height={stats.height} />
               {showStatus && <Svg source={night ? dim(forceDark(wordSource), 0.6) : tone(wordSource)} alt={`Status: ${state}`} width={word.width} height={word.height} />}
             </Box>
           </Box>
+          {/* The sky and Clawd sit together, centred in the room the stats leave. */}
+          <Box flexDirection="row" flexGrow={1} flexShrink={0} justifyContent="center">
           <Box flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
             <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />
             {/* Only the current form is mounted: each is an animated sandboxed frame, and keeping every
                 form seen mounted and hidden piled them up until the desktop stopped repainting the band. */}
             {/* Asleep he holds still, dimmed; awake at night he is drawn as by day. */}
             <Svg source={asleep ? fade(FORMS.Still ?? '', 1, 0.8, sleepChangedAt ? 0 : FADE_S) : (FORMS[name] ?? FORMS.Idle)} alt={`Clawd: ${name}`} width={CLAWD_W} height={BAR_HEIGHT} isInteractive />
+          </Box>
           </Box>
         </Box>
       )
