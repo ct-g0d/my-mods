@@ -425,25 +425,66 @@ export const FADE_S = 0.8
 export const SWAP_S = 0.5
 
 const TEXT_EL = /<text\b([^>]*)>([\s\S]*?)<\/text>/g
-// A text's place in the drawing, so the same chip's value is found again after a change.
-const placeOf = (attrs: string) => ['x', 'y', 'class'].map(a => new RegExp(`\\b${a}="([^"]*)"`).exec(attrs)?.[1] ?? '').join('|')
+// A text's place in the drawing, so the same chip's value is found again after a change. Only the first
+// class counts, so a percent that changes colour with its level is still the same percent.
+const placeOf = (attrs: string) => ['x', 'y', 'class'].map(a => new RegExp(`\\b${a}="([^" ]*)`).exec(attrs)?.[1] ?? '').join('|')
 const words = (inner: string) => inner.replace(/<[^>]*>/g, '')
 // The old text fades out over the first half of SWAP_S and the new one in over the second. Each rests at
 // its end state, so without animation the new text simply shows.
 const fadeOut = (el: string) => `<g opacity="0"><animate attributeName="opacity" values="1;0;0" keyTimes="0;.5;1" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
 const fadeIn = (el: string) => `<g><animate attributeName="opacity" values="0;0;1" keyTimes="0;.5;1" dur="${SWAP_S}s" fill="freeze"/>${el}</g>`
 
-// `next` with each text whose words differ from `prev` at its place fading: the old out, then the new in.
-// Texts that kept their words stay as they are.
+// How long a changed number rolls to its new value, in seconds. It slows gently into place.
+export const ROLL_S = 0.9
+const SIZE: Record<string, number> = { value: 13, pct: 9.5, soft: 13, tick: 7 }
+const isDigit = (c: string | undefined) => c !== undefined && c >= '0' && c <= '9'
+const amount = (w: string) => parseFloat(w.replace(/[^\d.]/g, '')) || 0
+const slide = (from: number, to: number) =>
+  `<animate attributeName="y" values="${from.toFixed(2)};${to.toFixed(2)}" dur="${ROLL_S}s" keyTimes="0;1" calcMode="spline" keySplines=".15 .85 .3 1" fill="freeze"/>`
+
+// The new number rolled in like an odometer, inside its own line: each changed digit runs through the
+// digits between, up when the number grew and down when it shrank, so 59 rolls on into 60. The digits
+// are tabular, so every layer sets the same; a number that changed shape (9% to 10%) rolls in whole.
+function roll(attrs: string, from: string, to: string, id: string): string {
+  const y = Number(/\by="([^"]*)"/.exec(attrs)?.[1] ?? 0)
+  const size = SIZE[/\bclass="(\w+)/.exec(attrs)?.[1] ?? ''] ?? 13
+  const h = size * 1.25, dir = amount(to) >= amount(from) ? 1 : -1
+  const text = (body: string, at = y) => `<text${attrs.replace(/\by="[^"]*"/, `y="${at.toFixed(2)}"`)}>${body}</text>`
+  const a = [...from], b = [...to]
+  const hidden = (c: string) => `<tspan fill-opacity="0">${c}</tspan>`
+  let layers: string
+  if (a.length !== b.length || a.some((c, k) => (isDigit(c) ? !isDigit(b[k]) : c !== b[k]))) {
+    layers = text(slide(y, y - dir * h) + from) + text(slide(y + dir * h, y) + to)
+  } else {
+    const steps = a.map((c, k) => (isDigit(c) ? (dir * (Number(b[k]) - Number(c)) + 10) % 10 : 0))
+    // Every layer is the whole number with all but one digit see-through, so it sets exactly as the plain
+    // number and each digit stays in its column. (A tspan with its own y starts a new chunk, centred alone.)
+    layers = text(b.map((c, k) => (steps[k] ? hidden(c) : c)).join(''))
+    a.forEach((c, k) => {
+      const s = steps[k]!
+      for (let j = 0; s && j <= s; j++) {
+        const digit = String((Number(c) + dir * j + 10) % 10)
+        layers += text(slide(y + dir * j * h, y + dir * (j - s) * h) + b.map((d, i) => (i === k ? digit : hidden(d))).join(''), y + dir * j * h)
+      }
+    })
+  }
+  return `<clipPath id="${id}"><rect x="-999" y="${(y - size).toFixed(2)}" width="9999" height="${(size * 1.3).toFixed(2)}"/></clipPath>` +
+    `<g clip-path="url(#${id})">${layers}</g>`
+}
+
+// `next` with each text whose words differ from `prev` at its place changing over: a number rolls to its new
+// value, anything else fades, the old out and then the new in. Texts that kept their words stay as they are.
 export function crossfade(prev: string, next: string): string {
   const before = new Map<string, { el: string; words: string }>()
   for (const m of prev.matchAll(TEXT_EL)) before.set(placeOf(m[1]), { el: m[0], words: words(m[2]) })
   const seen = new Set<string>()
+  let rolls = 0
   const out = next.replace(TEXT_EL, (el, attrs: string, inner: string) => {
     const place = placeOf(attrs)
     seen.add(place)
     const old = before.get(place)
     if (old?.words === words(inner)) return el
+    if (old && /\d/.test(old.words) && /\d/.test(words(inner))) return roll(attrs, old.words, words(inner), `cb-roll${rolls++}`)
     return (old ? fadeOut(old.el) : '') + fadeIn(el)
   })
   const gone = [...before].filter(([place]) => !seen.has(place)).map(([, old]) => fadeOut(old.el)).join('')

@@ -255,10 +255,9 @@ test('stats: usage is read mid-turn, not only when the turn ends', async ($, on)
   usd = 4.2
   await clock.advance(2000)
   const json = JSON.stringify(await $.ui.render(band('desktop')))
-  expect(json).toContain('$4.20')
-  // The old cost fades out as the new one fades in.
-  expect(json).toContain('$1.00')
-  expect(json).toContain('values=\\"1;0;0\\"')
+  // The cost rolls from $1.00 to $4.20: its 1 on up to 4.
+  expect(json).toContain('4</tspan>')
+  expect(json).toContain('keySplines')
 })
 
 // A turn ends with the cache back at 60m: CACHE glows, or thaws when it was chilling.
@@ -277,15 +276,17 @@ for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
   })
 }
 
-test('stats: a changed word or number fades out and in; the rest stays put', async () => {
+test('stats: a changed number rolls, a changed word fades; the rest stays put', async () => {
   const a = statsSvg({ working: false, cacheMinutes: 45, cost: '$1.00' }).source
   const b = statsSvg({ working: false, cacheMinutes: 45, cost: '$2.00' }).source
   expect(crossfade(a, a)).toBe(a)
-  const faded = crossfade(a, b)
-  expect(faded).toContain('$1.00')
-  expect(faded).toContain('$2.00')
-  // Only the cost fades: one text out, one in.
-  expect(faded.match(/values="1;0;0"/g)!.length).toBe(1)
-  expect(faded.match(/values="0;0;1"/g)!.length).toBe(1)
+  const rolled = crossfade(a, b)
+  // Only the cost's first digit rolls, one step up: 1 then 2, the rest of $1.00 holding still.
+  expect(rolled.match(/attributeName="y"/g)!.length).toBe(2)
+  expect(rolled).not.toContain('values="1;0;0"')
+  const nine = statsSvg({ working: false, cacheMinutes: 45, cost: '$0.59' }).source
+  const sixty = crossfade(nine, statsSvg({ working: false, cacheMinutes: 45, cost: '$0.60' }).source)
+  // 59 rolls on into 60: the 5 to 6, and the 9 through to 0.
+  expect(sixty.match(/attributeName="y"/g)!.length).toBe(4)
   expect(crossfade(statusSvg('Reading', true).source, statusSvg('Editing', true).source)).toContain('values="0;0;1"')
 })

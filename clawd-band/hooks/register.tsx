@@ -4,7 +4,7 @@ import type { EngineInterface as Engine, Register, SessionMeasureInput } from 'c
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, SWAP_S, WARM_S, crossfade, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
+import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
 import type { Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
@@ -127,8 +127,8 @@ let settle: { cancel: () => void } | null = null
 // The status drawing and what it was built from: rebuilt only when the word or the turn changes, since
 // its turn timer counts up on its own.
 let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg('', false) }
-// Each drawing's last markup and what is shown for it: a changed word or number fades out and the new one
-// in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
+// Each drawing's last markup and what is shown for it: a changed number rolls to its new value, and a
+// changed word fades out and the new one in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
 let swaps: Record<string, { raw: string; shown: string; at: number }> = {}
 function swapped(name: string, raw: string, now: number): string {
   const s = swaps[name]
@@ -136,7 +136,7 @@ function swapped(name: string, raw: string, now: number): string {
   else if (raw !== s.raw) {
     const shown = crossfade(s.raw, raw)
     swaps[name] = { raw, shown, at: shown === raw ? 0 : now }
-  } else if (s.at && now - s.at >= SWAP_S * 1000) swaps[name] = { raw, shown: raw, at: 0 }
+  } else if (s.at && now - s.at >= Math.max(SWAP_S, ROLL_S) * 1000) swaps[name] = { raw, shown: raw, at: 0 }
   return swaps[name].shown
 }
 
