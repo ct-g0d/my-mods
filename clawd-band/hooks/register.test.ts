@@ -280,17 +280,21 @@ for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
 test('desktop: a narrowing band leaves out the status, then HIT, TOK/S, CACHE, SESSION and the limits', async ($, on) => {
   on('ui.render', pass)
   const order: string[] = []
+  let faded = false
   for (let columns = 200; columns >= 10; columns -= 2) {
-    const json = JSON.stringify(await $.ui.render(band('desktop', columns)))
-    // A piece left out takes nothing with it: the rest redraw plainly, with no fade or roll across the jump.
-    expect(json).not.toContain('1;0;0')
+    const drawn = JSON.stringify(await $.ui.render(band('desktop', columns)))
+    if (drawn.includes('1;0;0')) faded = true
+    // A piece just left out is still fading away; what counts is what stays.
+    const json = drawn.replace(/<g opacity=\\"0\\">.*?<\/g>/g, '')
     // The sky and Clawd stay whatever the width.
     expect(json).toContain('Clawd:')
-    for (const [name, mark] of [['status', 'Status:'], ['hit', '>HIT<'], ['tps', '>TOK/S<'], ['cache', '>CACHE<'], ['session', '>SESSION<'], ['limits', '>5H<']]) {
+    for (const [name, mark] of [['status', '>STATUS<'], ['hit', '>HIT<'], ['tps', '>TOK/S<'], ['cache', '>CACHE<'], ['session', '>SESSION<'], ['limits', '>5H<']]) {
       if (!json.includes(mark!) && !order.includes(name!)) order.push(name!)
     }
   }
   expect(order).toEqual(['status', 'hit', 'tps', 'cache', 'session', 'limits'])
+  // Each piece fades out as it goes, rather than popping.
+  expect(faded).toBe(true)
 })
 
 test('stats: a changed number rolls, a changed word fades; the rest stays put', async () => {

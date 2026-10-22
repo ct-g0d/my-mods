@@ -4,7 +4,7 @@ import type { EngineInterface as Engine, Register, SessionMeasureInput } from 'c
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
+import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, drawnWidth, fadeAll, regroup, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
 import type { Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
@@ -42,9 +42,8 @@ const UNATTENDED = new Set(['task-notification', 'scheduled-trigger', 'peer', 'p
 
 // Clawd scaled to the chips' height so the row lines up.
 const CLAWD_W = (WIDTH * BAR_HEIGHT) / HEIGHT
-// The desktop lays the band out in cells of its code font's `ch`, about this many CSS pixels (a 12px mono;
-// a little under, so pieces go a touch early rather than run into the sky).
-const CELL_PX = 7.2
+// The desktop lays the band out in cells of its code font's `ch`: Anthropic Mono at 13px sets 7.79 CSS pixels.
+const CELL_PX = 7.8
 // The band's own padding and border, both sides, in CSS pixels.
 const BAND_PAD_PX = 24
 
@@ -135,8 +134,11 @@ let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg(''
 // Each drawing's last markup and what is shown for it: a changed number rolls to its new value, and a
 // changed word fades out and the new one in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
 let swaps: Record<string, { raw: string; shown: string; at: number }> = {}
-// Which pieces the band last fit; when that changes the rest move along, so they redraw plainly instead.
-let fit = ''
+// How many stats pieces the band last left out, so a change fades them out or in.
+let fit = -1
+// Whether the status last showed, and when that changed, so it fades out or in instead of popping.
+let statusOn = true
+let statusAt = 0
 function swapped(name: string, raw: string, now: number): string {
   const s = swaps[name]
   if (!s) swaps[name] = { raw, shown: raw, at: 0 }
@@ -247,6 +249,9 @@ export const register: Register = on => {
   tools = 0
   pending = {}
   swaps = {}
+  fit = -1
+  statusOn = true
+  statusAt = 0
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ctxdebug', description: 'TEMP: show what the session reports about context' })
@@ -470,8 +475,15 @@ export const register: Register = on => {
       let stats = statsSvg(base)
       const showStatus = stats.width + word.width <= room
       while (!showStatus && stats.width > room && drop < 5) stats = statsSvg({ ...base, drop: ++drop })
-      if (fit !== `${drop}|${showStatus}`) delete swaps.stats
-      fit = `${drop}|${showStatus}`
+      // A piece left out fades away and the rest fade into their new places; taken back, it fades in.
+      if (fit >= 0 && fit !== drop && swaps.stats) swaps.stats = { raw: stats.source, shown: regroup(swaps.stats.raw, stats.source), at: now }
+      fit = drop
+      if (showStatus !== statusOn) {
+        statusOn = showStatus
+        statusAt = now
+      }
+      // While it fades out the status stays mounted, then leaves.
+      const statusFading = now - statusAt < SWAP_S * 1000
 
       const statsSource = swapped('stats', stats.source, now)
 
@@ -488,8 +500,11 @@ export const register: Register = on => {
           <Box flexDirection="row" alignItems="center" gap={1} minWidth={0} overflow="hidden">
             <Box flexShrink={0}><Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} /></Box>
             <Box flexDirection="row" alignItems="center" flexShrink={0}>
-              <Svg source={night ? dim(forceDark(statsSource), 0.6) : tone(statsSource)} alt="Session stats" width={stats.width} height={stats.height} />
-              {showStatus && <Svg source={night ? dim(forceDark(wordSource), 0.6) : tone(wordSource)} alt={`Status: ${state}`} width={word.width} height={word.height} />}
+              <Svg source={night ? dim(forceDark(statsSource), 0.6) : tone(statsSource)} alt="Session stats" width={drawnWidth(statsSource) || stats.width} height={stats.height} />
+              {(showStatus || statusFading) && (() => {
+                const shown = statusFading ? fadeAll(wordSource, showStatus) : wordSource
+                return <Svg source={night ? dim(forceDark(shown), 0.6) : tone(shown)} alt={`Status: ${state}`} width={word.width} height={word.height} />
+              })()}
             </Box>
           </Box>
           {/* The sky and Clawd sit together, centred in the room the stats leave. */}

@@ -523,6 +523,50 @@ export function crossfade(prev: string, next: string): string {
   return gone ? out.replace(/<\/svg>\s*$/, `${gone}</svg>`) : out
 }
 
+// The drawing's top-level elements, its style and defs among them, each with what it holds.
+function pieces(source: string): string[] {
+  const body = source.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')
+  const out: string[] = []
+  let depth = 0
+  let start = 0
+  for (const m of body.matchAll(/<(\/?)[a-zA-Z][^>]*?(\/?)>/g)) {
+    if (m[1]) depth--
+    else if (!m[2]) depth++
+    if (depth === 0) {
+      out.push(body.slice(start, m.index + m[0].length))
+      start = m.index + m[0].length
+    }
+  }
+  return out
+}
+const widthOf = (source: string) => Number(/^<svg[^>]*?\bwidth="([\d.]+)"/.exec(source)?.[1] ?? 0)
+const BOOKKEEPING = /^<(style|defs|clipPath)\b/
+
+// `next` after its pieces changed, as when the band left one out or took one back: whatever stays put stays,
+// what went fades out and what came fades in. It is as wide as the wider of the two while that plays.
+export function regroup(prev: string, next: string): string {
+  const before = pieces(prev)
+  const after = pieces(next)
+  const had = new Set(before)
+  const has = new Set(after)
+  const kept = (p: string) => had.has(p) || BOOKKEEPING.test(p)
+  const body =
+    after.map(p => (kept(p) ? p : fadeIn(p))).join('') +
+    before.filter(p => !has.has(p)).map(p => (BOOKKEEPING.test(p) ? p : fadeOut(p))).join('')
+  const w = Math.max(widthOf(prev), widthOf(next))
+  const open = /^<svg[^>]*>/.exec(next)![0].replace(/viewBox="0 0 [\d.]+ /, `viewBox="0 0 ${w} `).replace(/\bwidth="[\d.]+"/, `width="${w}"`)
+  return `${open}${body}</svg>`
+}
+
+// A whole drawing coming or going: fading in, or out.
+export function fadeAll(source: string, appearing: boolean): string {
+  const [, open, body] = /^(<svg[^>]*>)([\s\S]*)<\/svg>\s*$/.exec(source)!
+  return `${open}${(appearing ? fadeIn : fadeOut)(body!)}</svg>`
+}
+
+// The width a drawing's markup gives itself.
+export const drawnWidth = widthOf
+
 // A drawing at `to` opacity, easing there from `from` when it changed `ago` seconds back.
 export function fade(source: string, from: number, to: number, ago: number): string {
   if (ago >= FADE_S) return to === 1 ? source : source.replace('<svg ', `<svg opacity="${to}" `)
