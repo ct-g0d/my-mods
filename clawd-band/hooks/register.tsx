@@ -42,6 +42,11 @@ const UNATTENDED = new Set(['task-notification', 'scheduled-trigger', 'peer', 'p
 
 // Clawd scaled to the chips' height so the row lines up.
 const CLAWD_W = (WIDTH * BAR_HEIGHT) / HEIGHT
+// The desktop lays the band out in cells of its code font's `ch`, about this many CSS pixels (a 12px mono;
+// a little under, so pieces go a touch early rather than run into the sky).
+const CELL_PX = 7.2
+// The band's own padding and border, both sides, in CSS pixels.
+const BAND_PAD_PX = 24
 
 // The context bar's colours, by /context's row names; any other used row is grey.
 const PART_COLOR: Record<string, string> = {
@@ -442,7 +447,7 @@ export const register: Register = on => {
       }
       const word = status.drawing
       const wordSource = swapped('status', word.source, now)
-      const stats = statsSvg({
+      const base = {
         working,
         cacheMinutes: cacheLeft,
         // Its markup holds still while it plays, like the fades, so the stats are not rebuilt on every render.
@@ -454,7 +459,15 @@ export const register: Register = on => {
         parts: slices.length ? slices : undefined,
         hit: rate >= 0 ? rate : undefined,
         tps: speed >= 0 ? speed : undefined,
-      })
+      }
+      // A narrow band never shrinks its drawings: it leaves out the status, then HIT, TOK/S, CACHE, the
+      // session pair and the limits, one by one, until what is left fits beside the sky and Clawd. The
+      // gaps are 1 cell, 2 cells and at least 1 more between the two sides.
+      const room = (e.props.bodyColumns + 5 - 4) * CELL_PX - BAND_PAD_PX - clock.width - SLEEP_W - CLAWD_W
+      let drop = 0
+      let stats = statsSvg(base)
+      const showStatus = stats.width + word.width <= room
+      while (!showStatus && stats.width > room && drop < 5) stats = statsSvg({ ...base, drop: ++drop })
 
       const statsSource = swapped('stats', stats.source, now)
 
@@ -469,10 +482,10 @@ export const register: Register = on => {
             <Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} />
             <Box flexDirection="row" alignItems="center">
               <Svg source={night ? dim(forceDark(statsSource), 0.6) : tone(statsSource)} alt="Session stats" width={stats.width} height={stats.height} />
-              <Svg source={night ? dim(forceDark(wordSource), 0.6) : tone(wordSource)} alt={`Status: ${state}`} width={word.width} height={word.height} />
+              {showStatus && <Svg source={night ? dim(forceDark(wordSource), 0.6) : tone(wordSource)} alt={`Status: ${state}`} width={word.width} height={word.height} />}
             </Box>
           </Box>
-          <Box flexDirection="row" alignItems="center" gap={2}>
+          <Box flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
             <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />
             {/* Only the current form is mounted: each is an animated sandboxed frame, and keeping every
                 form seen mounted and hidden piled them up until the desktop stopped repainting the band. */}

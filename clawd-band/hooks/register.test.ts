@@ -8,12 +8,12 @@ const withoutClawd: typeof test = FORMS.Idle ? ((() => {}) as any) : test
 
 const pass = () => ({ type: 'Box', props: {}, children: [] }) as any
 
-const band = (surface: 'desktop' | 'terminal') =>
+const band = (surface: 'desktop' | 'terminal', bodyColumns = 200) =>
   ({
     surface,
     component: 'AbovePrompt',
     requestId: 'band',
-    props: { hasSurvey: false, maxRows: 10, bodyColumns: 80 },
+    props: { hasSurvey: false, maxRows: 10, bodyColumns },
   }) as any
 
 // The band's own row.
@@ -275,6 +275,21 @@ for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
     expect(json.includes('filter=\\"url(#cb-rime)\\"')).toBe(kind === 'thaw')
   })
 }
+
+test('desktop: a narrowing band leaves out the status, then HIT, TOK/S, CACHE, SESSION and the limits', async ($, on) => {
+  on('ui.render', pass)
+  const order: string[] = []
+  for (let columns = 200; columns >= 10; columns -= 2) {
+    // A piece just left out is still fading away; what counts is what stays.
+    const json = JSON.stringify(await $.ui.render(band('desktop', columns))).replace(/<g opacity=\\"0\\">.*?<\/g>/g, '')
+    // The sky and Clawd stay whatever the width.
+    expect(json).toContain('Clawd:')
+    for (const [name, mark] of [['status', 'Status:'], ['hit', '>HIT<'], ['tps', '>TOK/S<'], ['cache', '>CACHE<'], ['session', '>SESSION<'], ['limits', '>5H<']]) {
+      if (!json.includes(mark!) && !order.includes(name!)) order.push(name!)
+    }
+  }
+  expect(order).toEqual(['status', 'hit', 'tps', 'cache', 'session', 'limits'])
+})
 
 test('stats: a changed number rolls, a changed word fades; the rest stays put', async () => {
   const a = statsSvg({ working: false, cacheMinutes: 45, cost: '$1.00' }).source

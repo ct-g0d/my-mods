@@ -359,6 +359,9 @@ export type Stats = {
   warm?: Warm
   // Whether /keepwarm's auto window is on.
   auto?: boolean
+  // How many pieces are left out to fit a narrow band, in this order: HIT, TOK/S, CACHE, the session pair,
+  // then the limits.
+  drop?: number
 }
 
 // The left cluster: the 5-hour bar over the 7-day one, session cost over the context bar, then
@@ -380,21 +383,23 @@ export function statsSvg(stats: Stats): Svg {
     { label: 'HIT', value: stats.hit !== undefined ? `${stats.hit}%` : '—', widest: '100%' },
     { label: 'TOK/S', value: stats.tps !== undefined ? String(stats.tps) : '—', widest: '000' },
   ]
+  const drop = stats.drop ?? 0
+  const kept = speed.slice(Math.min(drop, speed.length))
   // A hairline after the clock, then the pieces left to right.
   let x = 15
   let body = `<rect class="track" x="0" y="8" width="1" height="24"/>`
   for (const draw of [
-    (at: number) => stacked(limits, at),
-    (at: number) => stacked(session, at),
-    (at: number) => chips(speed, at),
-    (at: number) => (stats.cacheMinutes !== null ? cacheChip(at, stats.cacheMinutes, stats.working, stats.warm, stats.auto) : chips([{ label: 'CACHE', value: '—', widest: CACHE_WIDEST }], at)),
+    drop < 5 && ((at: number) => stacked(limits, at)),
+    drop < 4 && ((at: number) => stacked(session, at)),
+    kept.length > 0 && ((at: number) => chips(kept, at)),
+    drop < 3 && ((at: number) => (stats.cacheMinutes !== null ? cacheChip(at, stats.cacheMinutes, stats.working, stats.warm, stats.auto) : chips([{ label: 'CACHE', value: '—', widest: CACHE_WIDEST }], at))),
   ]) {
     if (!draw) continue
     const part = draw(x)
     body += part.body
     x += part.width + CHIP_GAP
   }
-  return svg(x - CHIP_GAP + 1, METER_DEFS.replace('</defs>', `${ICE_DEFS}${FROST_DEFS}</defs>`) + body)
+  return svg(Math.max(1, x - CHIP_GAP + 1), METER_DEFS.replace('</defs>', `${ICE_DEFS}${FROST_DEFS}</defs>`) + body)
 }
 
 // Claude's status, drawn right after the stats, a chip's gap from them.
