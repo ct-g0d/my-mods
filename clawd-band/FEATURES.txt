@@ -1,4 +1,4 @@
-CLAWD BAND 1.6.5 - FEATURES
+CLAWD BAND 1.6.6 - FEATURES
 ===========================
 
 THE BAND

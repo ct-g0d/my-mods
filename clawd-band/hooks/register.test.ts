@@ -279,6 +279,7 @@ for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
 
 test('desktop: a narrowing band leaves out the status, then HIT, TOK/S, CACHE, SESSION and the limits', async ($, on) => {
   on('ui.render', pass)
+  mock.clock(on)
   const order: string[] = []
   let faded = false
   for (let columns = 200; columns >= 10; columns -= 2) {
@@ -295,6 +296,31 @@ test('desktop: a narrowing band leaves out the status, then HIT, TOK/S, CACHE, S
   expect(order).toEqual(['status', 'hit', 'tps', 'cache', 'session', 'limits'])
   // Each piece fades out as it goes, rather than popping.
   expect(faded).toBe(true)
+})
+
+test('desktop: a change mid-fade does not replay the old one, and a piece comes back only with room to spare', async ($, on) => {
+  on('ui.render', pass)
+  mock.clock(on)
+  const draw = async (columns: number) => row(await $.ui.render(band('desktop', columns)))
+  const statsOf = (tree: any) => tree.children[0].children[1].children[0].props.source as string
+  // A piece still fading out counts as gone.
+  const shows = (tree: any, mark: string) => statsOf(tree).replace(/<g opacity="0">.*?<\/g>/g, '').includes(mark)
+  // A status still fading out counts as gone.
+  const hasStatus = (tree: any) => {
+    const status = tree.children[0].children[1].children[1]
+    return Boolean(status) && !status.props.source.includes('1;0;0')
+  }
+  let columns = 200
+  while (hasStatus(await draw(columns))) columns--
+  // HIT goes first among the stats, fading out.
+  let tree = await draw(columns)
+  while (shows(tree, '>HIT<')) tree = await draw(--columns)
+  expect(statsOf(tree)).toContain('1;0;0')
+  // TOK/S goes while that still plays: the stats change over plainly, with no fade restarted from the old.
+  while (shows(tree, '>TOK/S<')) tree = await draw(--columns)
+  expect(statsOf(tree)).not.toContain('1;0;0')
+  // One cell wider than where TOK/S went is not room enough to bring it back.
+  expect(statsOf(await draw(columns + 1))).not.toContain('>TOK/S<')
 })
 
 test('stats: a changed number rolls, a changed word fades; the rest stays put', async () => {

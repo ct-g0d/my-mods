@@ -31,6 +31,8 @@ const hit = atom({ plugin: 'clawd-band', key: 'hit' } as const, -1)
 const tps = atom({ plugin: 'clawd-band', key: 'tps' } as const, -1)
 const lastReply = atom({ plugin: 'clawd-band', key: 'lastReply' } as const, 0)
 const turnStart = atom({ plugin: 'clawd-band', key: 'turnStart' } as const, 0)
+// Bumped when a fade ends, so the band redraws right then with what the fade leaves.
+const redraw = atom({ plugin: 'clawd-band', key: 'redraw' } as const, 0)
 // When a turn last brought the cache back to 60m; CACHE plays its effect for WARM_S seconds from then.
 const warmed = atom({ plugin: 'clawd-band', key: 'warmed' } as const, 0)
 // That effect: a fire glow when the cache was fine, a thaw when it was chilling or frozen.
@@ -49,6 +51,10 @@ const BAND_PAD_PX = 24
 // Room kept clear beside the sky, as the desktop's padding and gaps run a little over the estimate: a piece
 // leaves a touch early rather than run under the sky.
 const SAFETY_PX = 32
+// Spare room a left-out piece needs before it comes back, so a width right at the edge does not flick it.
+const RETURN_PX = 16
+// How long a fade or roll plays, after which the band redraws plainly.
+const FADE_MS = Math.max(SWAP_S, ROLL_S) * 1000
 
 // The context bar's colours, by /context's row names; any other used row is grey.
 const PART_COLOR: Record<string, string> = {
@@ -137,18 +143,18 @@ let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg(''
 // Each drawing's last markup and what is shown for it: a changed number rolls to its new value, and a
 // changed word fades out and the new one in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
 let swaps: Record<string, { raw: string; shown: string; at: number }> = {}
-// How many stats pieces the band last left out, so a change fades them out or in.
-let fit = -1
-// Whether the status last showed, and when that changed, so it fades out or in instead of popping.
-let statusOn = true
+// How much the band last left out: 0 nothing, 1 the status, each level after one more stats piece.
+let fitLevel = -1
+// When the status last started fading out or in; 0 when it is not fading.
 let statusAt = 0
 function swapped(name: string, raw: string, now: number): string {
   const s = swaps[name]
   if (!s) swaps[name] = { raw, shown: raw, at: 0 }
   else if (raw !== s.raw) {
-    const shown = crossfade(s.raw, raw)
+    // A change while the last one still plays shows plainly: replaying from the old markup would flash it back.
+    const shown = s.at && now - s.at < FADE_MS ? raw : crossfade(s.raw, raw)
     swaps[name] = { raw, shown, at: shown === raw ? 0 : now }
-  } else if (s.at && now - s.at >= Math.max(SWAP_S, ROLL_S) * 1000) swaps[name] = { raw, shown: raw, at: 0 }
+  } else if (s.at && now - s.at >= FADE_MS) swaps[name] = { raw, shown: raw, at: 0 }
   return swaps[name].shown
 }
 
@@ -252,8 +258,7 @@ export const register: Register = on => {
   tools = 0
   pending = {}
   swaps = {}
-  fit = -1
-  statusOn = true
+  fitLevel = -1
   statusAt = 0
 
   on('session.start', async ($, e, next) => {
@@ -437,6 +442,7 @@ export const register: Register = on => {
       const startedAt = await read($, turnStart)
       const warmedAt = await read($, warmed)
       const warmedKind = await read($, warmKind)
+      await read($, redraw)
       const label = await read($, doing)
 
       const cacheLeft = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - now) / 60000) : null
@@ -474,21 +480,37 @@ export const register: Register = on => {
       // session pair and the limits, one by one, until what is left fits beside the sky and Clawd. The
       // gaps are 1 cell, 2 cells and at least 1 more between the two sides.
       const room = (e.props.bodyColumns + 5 - 4) * CELL_PX - BAND_PAD_PX - SAFETY_PX - clock.width - SLEEP_W - CLAWD_W
-      let drop = 0
-      let stats = statsSvg(base)
-      const showStatus = stats.width + word.width <= room
-      while (!showStatus && stats.width > room && drop < 5) stats = statsSvg({ ...base, drop: ++drop })
-      // A piece left out fades away and the rest fade into their new places; taken back, it fades in.
-      if (fit >= 0 && fit !== drop && swaps.stats) swaps.stats = { raw: stats.source, shown: regroup(swaps.stats.raw, stats.source), at: now }
-      fit = drop
-      if (showStatus !== statusOn) {
-        statusOn = showStatus
-        statusAt = now
+      const made: Drawing[] = []
+      const statsAt = (level: number) => (made[level] ??= statsSvg({ ...base, drop: Math.max(0, level - 1) }))
+      const levelFor = (r: number) => {
+        let level = 0
+        while (level < 6 && statsAt(level).width + (level === 0 ? word.width : 0) > r) level++
+        return level
       }
+      let level = levelFor(room)
+      if (fitLevel >= 0 && level < fitLevel) level = Math.min(fitLevel, levelFor(room - RETURN_PX))
+      const stats = statsAt(level)
+      const showStatus = level === 0
+      const playing = (at: number) => at > 0 && now - at < FADE_MS
+      if (fitLevel >= 0 && level !== fitLevel) {
+        // A piece left out fades away and the rest fade into their new places; taken back, it fades in. A
+        // change while a fade still plays (a window being dragged) goes straight to the new state instead.
+        const s = swaps.stats
+        if (s && Math.max(1, level) !== Math.max(1, fitLevel)) {
+          const fresh = !playing(s.at)
+          swaps.stats = { raw: stats.source, shown: fresh ? regroup(s.raw, stats.source) : stats.source, at: fresh ? now : 0 }
+        }
+        if ((level === 0) !== (fitLevel === 0)) statusAt = playing(statusAt) ? 0 : now
+      }
+      fitLevel = level
       // While it fades out the status stays mounted, then leaves.
-      const statusFading = now - statusAt < SWAP_S * 1000
+      const statusFading = playing(statusAt)
 
       const statsSource = swapped('stats', stats.source, now)
+      // Each fade ends with a redraw of its own, so what it leaves (the status gone, the plain drawing) shows on time.
+      if (swaps.stats?.at === now || swaps.status?.at === now || statusAt === now) {
+        $.clock.after(FADE_MS + 50, async () => update($, redraw, n => n + 1))
+      }
 
       // By day the band takes the hour's tint and sky; its drawings keep the colours that suit the tint.
       const period = periodAt(now)
