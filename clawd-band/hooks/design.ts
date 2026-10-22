@@ -439,8 +439,33 @@ export const ROLL_S = 0.9
 const SIZE: Record<string, number> = { value: 13, pct: 9.5, soft: 13, tick: 7 }
 const isDigit = (c: string | undefined) => c !== undefined && c >= '0' && c <= '9'
 const amount = (w: string) => parseFloat(w.replace(/[^\d.]/g, '')) || 0
-const slide = (from: number, to: number) =>
-  `<animate attributeName="y" values="${from.toFixed(2)};${to.toFixed(2)}" dur="${ROLL_S}s" keyTimes="0;1" calcMode="spline" keySplines=".15 .85 .3 1" fill="freeze"/>`
+const ease = (name: string, from: number, to: number) =>
+  `<animate attributeName="${name}" values="${from.toFixed(2)};${to.toFixed(2)}" dur="${ROLL_S}s" keyTimes="0;1" calcMode="spline" keySplines=".15 .85 .3 1" fill="freeze"/>`
+const slide = (from: number, to: number) => ease('y', from, to)
+
+const RECT_EL = /<rect\b([^>]*?)\/>/g
+const attr = (attrs: string, name: string) => new RegExp(`\\b${name}="([^"]*)"`).exec(attrs)?.[1]
+// A bar piece's identity across drawings: its row, then its colour, glow or class. A context slice is known
+// by its colour alone, as it slides along when the slices before it change; any other piece stays where it starts.
+const rectKey = (attrs: string) => {
+  const fill = attr(attrs, 'fill')
+  return `${attr(attrs, 'y')}|${fill ?? attr(attrs, 'filter') ?? attr(attrs, 'class')}|${fill?.startsWith('#') ? '' : attr(attrs, 'x')}`
+}
+
+// `next` with each bar piece that moved easing from where it was in `prev`, over the same gentle ROLL_S as
+// the numbers, so a bar fills or empties smoothly. A context slice that is new grows in from nothing.
+function stretch(prev: string, next: string): string {
+  const before = new Map<string, string>()
+  for (const m of prev.matchAll(RECT_EL)) before.set(rectKey(m[1]!), m[1]!)
+  return next.replace(RECT_EL, (el, attrs: string) => {
+    const old = before.get(rectKey(attrs))
+    const [x, w] = [Number(attr(attrs, 'x')), Number(attr(attrs, 'width'))]
+    if (!old) return attr(attrs, 'fill')?.startsWith('#') ? `<rect${attrs}>${ease('width', 0, w)}</rect>` : el
+    const [ox, ow] = [Number(attr(old, 'x')), Number(attr(old, 'width'))]
+    if (ox === x && ow === w) return el
+    return `<rect${attrs}>${ox !== x ? ease('x', ox, x) : ''}${ow !== w ? ease('width', ow, w) : ''}</rect>`
+  })
+}
 
 // The new number rolled in like an odometer, inside its own line: each changed digit runs through the
 // digits between, up when the number grew and down when it shrank, so 59 rolls on into 60. The digits
@@ -474,7 +499,9 @@ function roll(attrs: string, from: string, to: string, id: string): string {
 
 // `next` with each text whose words differ from `prev` at its place changing over: a number rolls to its new
 // value, anything else fades, the old out and then the new in. Texts that kept their words stay as they are.
+// Bars ease to their new length.
 export function crossfade(prev: string, next: string): string {
+  next = stretch(prev, next)
   const before = new Map<string, { el: string; words: string }>()
   for (const m of prev.matchAll(TEXT_EL)) before.set(placeOf(m[1]), { el: m[0], words: words(m[2]) })
   const seen = new Set<string>()

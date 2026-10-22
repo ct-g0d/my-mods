@@ -288,5 +288,9 @@ test('stats: a changed number rolls, a changed word fades; the rest stays put', 
   const sixty = crossfade(nine, statsSvg({ working: false, cacheMinutes: 45, cost: '$0.60' }).source)
   // 59 rolls on into 60: the 5 to 6, and the 9 through to 0.
   expect(sixty.match(/attributeName="y"/g)!.length).toBe(4)
+  // A bar eases from its old length to the new one: the fill and its sheen.
+  const low = statsSvg({ working: false, cacheMinutes: 45, limit: 20 }).source
+  const filled = crossfade(low, statsSvg({ working: false, cacheMinutes: 45, limit: 60 }).source)
+  expect(filled.match(/attributeName="width"/g)!.length).toBe(2)
   expect(crossfade(statusSvg('Reading', true).source, statusSvg('Editing', true).source)).toContain('values="0;0;1"')
 })
