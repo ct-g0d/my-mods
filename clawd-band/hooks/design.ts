@@ -36,6 +36,21 @@ const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 export type Svg = { source: string; width: number; height: number }
 
+// A drawing the band may give less room than its width. It never shrinks: set at its own size from the
+// left, it fades out while its slot is too narrow, and back in once there is room, its own media query
+// keeping watch, so nothing has to guess how wide the band is.
+function piece(width: number, body: string): Svg {
+  const w = Math.ceil(width)
+  const { source } = svg(w, `<g class="cb-piece">${body}</g>`)
+  return {
+    source: source
+      .replace('<svg ', '<svg preserveAspectRatio="xMinYMid slice" ')
+      .replace('</style>', `.cb-piece{transition:opacity ${SWAP_S}s}@media (max-width:${w - 0.5}px){.cb-piece{opacity:0}}</style>`),
+    width: w,
+    height: BAR_HEIGHT,
+  }
+}
+
 function svg(width: number, body: string, height = BAR_HEIGHT): Svg {
   const w = Math.ceil(width)
   return {
@@ -267,7 +282,12 @@ const METER_W = 60
 // How full a limit is, as the class that colours its bar and percent: green under 40%, ink to 70%,
 // yellow to 90%, red to 95%, and red pulsing past that.
 const level = (p: number) => (p < 40 ? 'lvl-ok' : p < 70 ? 'lvl-mid' : p < 90 ? 'lvl-high' : 'lvl-max')
-const pulse = (p: number) => (p >= 95 ? `<animate attributeName="opacity" values="1;.35;1" dur="1s" repeatCount="indefinite"/>` : '')
+const pulse = (p: number) => (p >= 95 ? `<animate class="cb-beat" begin="0s" attributeName="opacity" values="1;.35;1" dur="1s" repeatCount="indefinite"/>` : '')
+
+// `source` with its pulse set in step with the clock as of `now`. A drawing's animations start over each
+// time it loads, so a pulse begun where the clock says it is reached keeps one steady beat across loads.
+export const inStep = (source: string, now: number) =>
+  source.replaceAll('class="cb-beat" begin="0s"', `class="cb-beat" begin="-${((now % 1000) / 1000).toFixed(3)}s"`)
 
 // One bevelled bar with a soft glow, toned by how full it is.
 function bar(x: number, y: number, w: number, h: number, percent: number): string {
@@ -359,15 +379,15 @@ export type Stats = {
   warm?: Warm
   // Whether /keepwarm's auto window is on.
   auto?: boolean
-  // How many pieces are left out to fit a narrow band, in this order: HIT, TOK/S, CACHE, the session pair,
-  // then the limits.
-  drop?: number
 }
 
 // The left cluster: the 5-hour bar over the 7-day one, session cost over the context bar, then
 // cache hit and tokens a second and the cache's minutes left. The status is its own drawing, so a
 // new word redraws only it.
-export function statsSvg(stats: Stats): Svg {
+type Draw = (at: number) => { body: string; width: number }
+
+// The stats pieces left to right, each drawn from a given x.
+function statsDraws(stats: Stats): [string, Draw][] {
   // Every piece shows from the start, blank until measured, so the band never shifts as values arrive.
   const limits: Row[] = [
     { tag: '5H', percent: stats.limit ?? NaN },
@@ -379,33 +399,46 @@ export function statsSvg(stats: Stats): Svg {
     { tag: 'CTX', percent: stats.context ?? 0, barW: tagWidth('SESSION') + COST_W - tagWidth('CTX'), bare: true, parts: stats.parts },
   ]
   // Shown from the start, a dash until the first response measures them.
-  const speed: Chip[] = [
-    { label: 'HIT', value: stats.hit !== undefined ? `${stats.hit}%` : '—', widest: '100%' },
-    { label: 'TOK/S', value: stats.tps !== undefined ? String(stats.tps) : '—', widest: '000' },
+  const hit: Chip = { label: 'HIT', value: stats.hit !== undefined ? `${stats.hit}%` : '—', widest: '100%' }
+  const tps: Chip = { label: 'TOK/S', value: stats.tps !== undefined ? String(stats.tps) : '—', widest: '000' }
+  return [
+    ['limits', at => stacked(limits, at)],
+    ['session', at => stacked(session, at)],
+    ['hit', at => chips([hit], at)],
+    ['tps', at => chips([tps], at)],
+    ['cache', at => (stats.cacheMinutes !== null ? cacheChip(at, stats.cacheMinutes, stats.working, stats.warm, stats.auto) : chips([{ label: 'CACHE', value: '—', widest: CACHE_WIDEST }], at))],
   ]
-  const drop = stats.drop ?? 0
-  const kept = speed.slice(Math.min(drop, speed.length))
-  // A hairline after the clock, then the pieces left to right.
+}
+
+const HAIRLINE = `<rect class="track" x="0" y="8" width="1" height="24"/>`
+const STATS_DEFS = METER_DEFS.replace('</defs>', `${ICE_DEFS}${FROST_DEFS}</defs>`)
+
+// The left cluster in one drawing: a hairline after the clock, then the pieces left to right.
+export function statsSvg(stats: Stats): Svg {
   let x = 15
-  let body = `<rect class="track" x="0" y="8" width="1" height="24"/>`
-  for (const draw of [
-    drop < 5 && ((at: number) => stacked(limits, at)),
-    drop < 4 && ((at: number) => stacked(session, at)),
-    kept.length > 0 && ((at: number) => chips(kept, at)),
-    drop < 3 && ((at: number) => (stats.cacheMinutes !== null ? cacheChip(at, stats.cacheMinutes, stats.working, stats.warm, stats.auto) : chips([{ label: 'CACHE', value: '—', widest: CACHE_WIDEST }], at))),
-  ]) {
-    if (!draw) continue
+  let body = HAIRLINE
+  for (const [, draw] of statsDraws(stats)) {
     const part = draw(x)
     body += part.body
     x += part.width + CHIP_GAP
   }
-  return svg(Math.max(1, x - CHIP_GAP + 1), METER_DEFS.replace('</defs>', `${ICE_DEFS}${FROST_DEFS}</defs>`) + body)
+  return svg(x - CHIP_GAP + 1, STATS_DEFS + body)
+}
+
+// The same pieces as drawings of their own, for a band that may be too narrow for them all: the first
+// carries the hairline after the clock, each after it a chip's gap before it.
+export function statsPieces(stats: Stats): { name: string; drawing: Svg }[] {
+  return statsDraws(stats).map(([name, draw], i) => {
+    const lead = i === 0 ? 15 : CHIP_GAP
+    const part = draw(lead)
+    return { name, drawing: piece(lead + part.width + 1, STATS_DEFS + (i === 0 ? HAIRLINE : '') + part.body) }
+  })
 }
 
 // Claude's status, drawn right after the stats, a chip's gap from them.
 export function statusSvg(state: string, working: boolean, elapsed?: number): Svg {
   const part = statusChip(CHIP_GAP - 1, state, working, elapsed)
-  return svg(CHIP_GAP + part.width, part.body)
+  return piece(CHIP_GAP + part.width, part.body)
 }
 
 
@@ -522,50 +555,6 @@ export function crossfade(prev: string, next: string): string {
   const gone = [...before].filter(([place]) => !seen.has(place)).map(([, old]) => fadeOut(old.el)).join('')
   return gone ? out.replace(/<\/svg>\s*$/, `${gone}</svg>`) : out
 }
-
-// The drawing's top-level elements, its style and defs among them, each with what it holds.
-function pieces(source: string): string[] {
-  const body = source.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')
-  const out: string[] = []
-  let depth = 0
-  let start = 0
-  for (const m of body.matchAll(/<(\/?)[a-zA-Z][^>]*?(\/?)>/g)) {
-    if (m[1]) depth--
-    else if (!m[2]) depth++
-    if (depth === 0) {
-      out.push(body.slice(start, m.index + m[0].length))
-      start = m.index + m[0].length
-    }
-  }
-  return out
-}
-const widthOf = (source: string) => Number(/^<svg[^>]*?\bwidth="([\d.]+)"/.exec(source)?.[1] ?? 0)
-const BOOKKEEPING = /^<(style|defs|clipPath)\b/
-
-// `next` after its pieces changed, as when the band left one out or took one back: whatever stays put stays,
-// what went fades out and what came fades in. It is as wide as the wider of the two while that plays.
-export function regroup(prev: string, next: string): string {
-  const before = pieces(prev)
-  const after = pieces(next)
-  const had = new Set(before)
-  const has = new Set(after)
-  const kept = (p: string) => had.has(p) || BOOKKEEPING.test(p)
-  const body =
-    after.map(p => (kept(p) ? p : fadeIn(p))).join('') +
-    before.filter(p => !has.has(p)).map(p => (BOOKKEEPING.test(p) ? p : fadeOut(p))).join('')
-  const w = Math.max(widthOf(prev), widthOf(next))
-  const open = /^<svg[^>]*>/.exec(next)![0].replace(/viewBox="0 0 [\d.]+ /, `viewBox="0 0 ${w} `).replace(/\bwidth="[\d.]+"/, `width="${w}"`)
-  return `${open}${body}</svg>`
-}
-
-// A whole drawing coming or going: fading in, or out.
-export function fadeAll(source: string, appearing: boolean): string {
-  const [, open, body] = /^(<svg[^>]*>)([\s\S]*)<\/svg>\s*$/.exec(source)!
-  return `${open}${(appearing ? fadeIn : fadeOut)(body!)}</svg>`
-}
-
-// The width a drawing's markup gives itself.
-export const drawnWidth = widthOf
 
 // A drawing at `to` opacity, easing there from `from` when it changed `ago` seconds back.
 export function fade(source: string, from: number, to: number, ago: number): string {

@@ -276,50 +276,15 @@ for (const [ago, kind] of [[30, 'glow'], [55, 'thaw']] as const) {
   })
 }
 
-test('desktop: a narrowing band leaves out the status, then HIT, TOK/S, CACHE, SESSION and the limits', async ($, on) => {
+test('desktop: each piece is its own drawing that fades itself out when its slot is too narrow', async ($, on) => {
   on('ui.render', pass)
-  mock.clock(on)
-  const order: string[] = []
-  let faded = false
-  for (let columns = 200; columns >= 10; columns -= 2) {
-    const drawn = JSON.stringify(await $.ui.render(band('desktop', columns)))
-    if (drawn.includes('values=\\"1;0\\"')) faded = true
-    // A piece just left out is still fading away; what counts is what stays.
-    const json = drawn.replace(/<g opacity=\\"0\\">.*?<\/g>/g, '')
-    // The sky and Clawd stay whatever the width.
-    expect(json).toContain('Clawd:')
-    for (const [name, mark] of [['status', '>STATUS<'], ['hit', '>HIT<'], ['tps', '>TOK/S<'], ['cache', '>CACHE<'], ['session', '>SESSION<'], ['limits', '>5H<']]) {
-      if (!json.includes(mark!) && !order.includes(name!)) order.push(name!)
-    }
-  }
-  expect(order).toEqual(['status', 'hit', 'tps', 'cache', 'session', 'limits'])
-  // Each piece fades out as it goes, rather than popping.
-  expect(faded).toBe(true)
-})
-
-test('desktop: a change mid-fade does not replay the old one, and a piece comes back only with room to spare', async ($, on) => {
-  on('ui.render', pass)
-  mock.clock(on)
-  const draw = async (columns: number) => row(await $.ui.render(band('desktop', columns)))
-  const statsOf = (tree: any) => tree.children[0].children[1].children[0].props.source as string
-  // A piece still fading out counts as gone.
-  const shows = (tree: any, mark: string) => statsOf(tree).replace(/<g opacity="0">.*?<\/g>/g, '').includes(mark)
-  // A status still fading out counts as gone.
-  const hasStatus = (tree: any) => {
-    const status = tree.children[0].children[1].children[1]
-    return Boolean(status) && !status.props.source.includes('values="1;0"')
-  }
-  let columns = 200
-  while (hasStatus(await draw(columns))) columns--
-  // HIT goes first among the stats, fading out.
-  let tree = await draw(columns)
-  while (shows(tree, '>HIT<')) tree = await draw(--columns)
-  expect(statsOf(tree)).toContain('values="1;0"')
-  // TOK/S goes while that still plays: the stats change over plainly, with no fade restarted from the old.
-  while (shows(tree, '>TOK/S<')) tree = await draw(--columns)
-  expect(statsOf(tree)).not.toContain('values="1;0"')
-  // One cell wider than where TOK/S went is not room enough to bring it back.
-  expect(statsOf(await draw(columns + 1))).not.toContain('>TOK/S<')
+  const json = JSON.stringify(await $.ui.render(band('desktop')))
+  for (const name of ['limits', 'session', 'hit', 'tps', 'cache']) expect(json).toContain(`Stats: ${name}`)
+  expect(json).toContain('Status:')
+  expect(json).toContain('preserveAspectRatio=\\"xMinYMid slice\\"')
+  expect(json).toContain('@media (max-width:')
+  // The give-way order rests on the desktop's ceiling for flexShrink.
+  expect(json).toContain('\"flexShrink\":10000')
 })
 
 test('stats: a changed number rolls, a changed word fades; the rest stays put', async () => {

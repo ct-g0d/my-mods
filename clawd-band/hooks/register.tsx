@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface as Engine, Register, SessionMeasureInput } from 'claude-code'
+import type { EngineInterface as Engine, Register, RenderChildren, SessionMeasureInput } from 'claude-code'
 
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, drawnWidth, fadeAll, regroup, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
+import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, inStep, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsPieces, statusSvg } from './design'
 import type { Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
@@ -31,8 +31,6 @@ const hit = atom({ plugin: 'clawd-band', key: 'hit' } as const, -1)
 const tps = atom({ plugin: 'clawd-band', key: 'tps' } as const, -1)
 const lastReply = atom({ plugin: 'clawd-band', key: 'lastReply' } as const, 0)
 const turnStart = atom({ plugin: 'clawd-band', key: 'turnStart' } as const, 0)
-// Bumped when a fade ends, so the band redraws right then with what the fade leaves.
-const redraw = atom({ plugin: 'clawd-band', key: 'redraw' } as const, 0)
 // When a turn last brought the cache back to 60m; CACHE plays its effect for WARM_S seconds from then.
 const warmed = atom({ plugin: 'clawd-band', key: 'warmed' } as const, 0)
 // That effect: a fire glow when the cache was fine, a thaw when it was chilling or frozen.
@@ -44,15 +42,9 @@ const UNATTENDED = new Set(['task-notification', 'scheduled-trigger', 'peer', 'p
 
 // Clawd scaled to the chips' height so the row lines up.
 const CLAWD_W = (WIDTH * BAR_HEIGHT) / HEIGHT
-// The desktop lays the band out in cells of its code font's `ch`: Anthropic Mono at 13px sets 7.79 CSS pixels.
-const CELL_PX = 7.8
-// The band's own padding and border, both sides, in CSS pixels.
-const BAND_PAD_PX = 24
-// Room kept clear beside the sky, as the desktop's padding and gaps run a little over the estimate: a piece
-// leaves a touch early rather than run under the sky.
-const SAFETY_PX = 20
-// Spare room a left-out piece needs before it comes back, so a width right at the edge does not flick it.
-const RETURN_PX = 16
+// How readily a slot gives way beside a sibling that holds at 1: so much more that it gives all its room
+// first. The most the desktop takes.
+const GIVE = 10000
 // How long a fade or roll plays, after which the band redraws plainly.
 const FADE_MS = Math.max(SWAP_S, ROLL_S) * 1000
 
@@ -143,10 +135,12 @@ let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg(''
 // Each drawing's last markup and what is shown for it: a changed number rolls to its new value, and a
 // changed word fades out and the new one in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
 let swaps: Record<string, { raw: string; shown: string; at: number }> = {}
-// How much the band last left out: 0 nothing, 1 the status, each level after one more stats piece.
-let fitLevel = -1
-// When the status last started fading out or in; 0 when it is not fading.
-let statusAt = 0
+// Each drawing's shown markup, and the same with its pulse set in step as of when that markup first showed.
+const beats: Record<string, { shown: string; out: string }> = {}
+function inStepOf(name: string, shown: string, now: number): string {
+  if (beats[name]?.shown !== shown) beats[name] = { shown, out: inStep(shown, now) }
+  return beats[name].out
+}
 function swapped(name: string, raw: string, now: number): string {
   const s = swaps[name]
   if (!s) swaps[name] = { raw, shown: raw, at: 0 }
@@ -257,8 +251,6 @@ export const register: Register = on => {
   tools = 0
   pending = {}
   swaps = {}
-  fitLevel = -1
-  statusAt = 0
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ctxdebug', description: 'TEMP: show what the session reports about context' })
@@ -441,7 +433,6 @@ export const register: Register = on => {
       const startedAt = await read($, turnStart)
       const warmedAt = await read($, warmed)
       const warmedKind = await read($, warmKind)
-      await read($, redraw)
       const label = await read($, doing)
 
       const cacheLeft = repliedAt ? Math.ceil((repliedAt + CACHE_TTL_MS - now) / 60000) : null
@@ -475,61 +466,41 @@ export const register: Register = on => {
         hit: rate >= 0 ? rate : undefined,
         tps: speed >= 0 ? speed : undefined,
       }
-      // A narrow band never shrinks its drawings: it leaves out the status, then HIT, TOK/S, CACHE, the
-      // session pair and the limits, one by one, until what is left fits beside the sky and Clawd. The
-      // gaps are 1 cell, 2 cells and at least 1 more between the two sides.
-      const room = (e.props.bodyColumns + 5 - 4) * CELL_PX - BAND_PAD_PX - SAFETY_PX - clock.width - SLEEP_W - CLAWD_W
-      const made: Drawing[] = []
-      const statsAt = (level: number) => (made[level] ??= statsSvg({ ...base, drop: Math.max(0, level - 1) }))
-      const levelFor = (r: number) => {
-        let level = 0
-        while (level < 6 && statsAt(level).width + (level === 0 ? word.width : 0) > r) level++
-        return level
+      // Each stats piece and the status is a drawing of its own, its markup changing over (a roll, a fade)
+      // as before, and its pulse kept in step across loads.
+      const shown: Record<string, { drawing: Drawing; source: string }> = {}
+      for (const { name, drawing } of [...statsPieces(base), { name: 'status', drawing: word }]) {
+        shown[name] = { drawing, source: inStepOf(name, name === 'status' ? wordSource : swapped(name, drawing.source, now), now) }
       }
-      let level = levelFor(room)
-      if (fitLevel >= 0 && level < fitLevel) level = Math.min(fitLevel, levelFor(room - RETURN_PX))
-      const stats = statsAt(level)
-      const showStatus = level === 0
-      const playing = (at: number) => at > 0 && now - at < FADE_MS
-      if (fitLevel >= 0 && level !== fitLevel) {
-        // A piece left out fades away and the rest fade into their new places; taken back, it fades in. A
-        // change while a fade still plays (a window being dragged) goes straight to the new state instead.
-        const s = swaps.stats
-        if (s && Math.max(1, level) !== Math.max(1, fitLevel)) {
-          const fresh = !playing(s.at)
-          swaps.stats = { raw: stats.source, shown: fresh ? regroup(s.raw, stats.source) : stats.source, at: fresh ? now : 0 }
-        }
-        if ((level === 0) !== (fitLevel === 0)) statusAt = statusAt > 0 && now - statusAt < SWAP_S * 1000 ? 0 : now
-      }
-      fitLevel = level
-      // While it fades out the status stays mounted, then leaves.
-      const statusFading = statusAt > 0 && now - statusAt < SWAP_S * 1000
-
-      const statsSource = swapped('stats', stats.source, now)
-      // Each fade ends with a redraw of its own, so what it leaves (the status gone, the plain drawing) shows on time.
-      const settle = (ms: number) => $.clock.after(ms + 50, async () => update($, redraw, n => n + 1))
-      if (swaps.stats?.at === now || swaps.status?.at === now) settle(FADE_MS)
-      if (statusAt === now) settle(SWAP_S * 1000)
 
       // By day the band takes the hour's tint and sky; its drawings keep the colours that suit the tint.
       const period = periodAt(now)
       const tone = period?.dark ? forceDark : forceLight
       const bg = period?.bg ?? NIGHT_BG
+      const group = (give: number, ...children: RenderChildren[]) => (
+        <Box flexDirection="row" alignItems="center" flexShrink={give} minWidth={0} overflow="hidden">{children}</Box>
+      )
+      const slot = (name: string, give: number) => {
+        const { drawing, source } = shown[name]!
+        return (
+          <Box flexShrink={give} minWidth={0} overflow="hidden">
+            <Svg source={night ? dim(forceDark(source), 0.6) : tone(source)} alt={name === 'status' ? `Status: ${state}` : `Stats: ${name}`} width={drawing.width} height={drawing.height} />
+          </Box>
+        )
+      }
 
       return (
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
-          {/* Every drawing keeps its own size. Until the desktop reports a new width (it waits a moment
-              after a resize) the stats are cut off at their edge, never squeezed, and the sky and Clawd
-              never give way. */}
+          {/* Every drawing keeps its own size, and the sky and Clawd never give way. */}
           <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1} minWidth={0} overflow="hidden">
             <Box flexShrink={0}><Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} /></Box>
-            <Box flexDirection="row" alignItems="center" flexShrink={0}>
-              <Svg source={night ? dim(forceDark(statsSource), 0.6) : tone(statsSource)} alt="Session stats" width={drawnWidth(statsSource) || stats.width} height={stats.height} />
-              {(showStatus || statusFading) && (() => {
-                const shown = statusFading ? fadeAll(wordSource, showStatus) : wordSource
-                return <Svg source={night ? dim(forceDark(shown), 0.6) : tone(shown)} alt={`Status: ${state}`} width={word.width} height={word.height} />
-              })()}
-            </Box>
+            {/* Short of room, the slots give way in this order, each piece fading out as its slot gets
+                narrower than it and back in when there is room again: the status, HIT, TOK/S, CACHE, the
+                session pair, then the limits. Each pair below holds one side at 1 and lets the other give
+                first, which keeps that order whatever the widths. */}
+            {group(1, slot('limits', 1), group(GIVE, slot('session', 1), group(GIVE,
+              group(1, slot('hit', GIVE), group(1, slot('tps', GIVE), slot('cache', 1))),
+              slot('status', GIVE))))}
           </Box>
           <Box flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
             <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />
