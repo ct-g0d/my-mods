@@ -2,6 +2,8 @@
 
 The Claude desktop app's animated Clawd, living in a band above the prompt box with your session's stats and a sky that changes through the day.
 
+![The band at dawn, midday, evening and night](docs/band.png)
+
 Version **1.7.3**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 
 ## What's on the band
@@ -54,9 +56,10 @@ At night (23:15–05:30) the band goes dark whatever your theme. A crescent moon
 
 ## Install
 
-From this repository's marketplace:
+Add this repository's marketplace, then install:
 
 ```bash
+claude plugin marketplace add ct-g0d/my-mods
 claude plugin install clawd-band@my-mods
 ```
 
