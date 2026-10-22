@@ -4,13 +4,13 @@ import type { EngineInterface as Engine, Register, SessionMeasureInput } from 'c
 import type { Part } from '../types'
 
 import { DURATION_MS, FORMS, HEIGHT, WIDTH } from './clawd-frames'
-import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, ROLL_S, SWAP_S, WARM_S, crossfade, inStep, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
-import type { Svg as Drawing } from './design'
+import { BAR_HEIGHT, FADE_S, ICE_MINUTES, NIGHT_BG, SLEEP_W, WARM_S, changeOver, changes, outlined, settle as atNow, fade, forceDark, forceLight, isNight, periodAt, sleepSvg, statsSvg, statusSvg } from './design'
+import type { Changes, Svg as Drawing } from './design'
 import { coldUsd, duration, tok, usd } from './cache'
 import { clockSvg, clockText, costText, sleepyClock } from './pixel-clock'
 
 // A finishing form loops whole for at least this long.
-const FINISH_MS = 10000
+const FINISH_MS = 7000
 // A turn longer than this ends with a breakdance instead of a hop.
 const BIG_TURN_MS = 60000
 // How long the prompt cache stays warm after a reply (an hour on a subscription).
@@ -46,7 +46,6 @@ const CLAWD_W = (WIDTH * BAR_HEIGHT) / HEIGHT
 // all its room first. The most the desktop takes.
 const GIVE = 10000
 // How long a fade or roll plays, after which the band redraws plainly.
-const FADE_MS = Math.max(SWAP_S, ROLL_S) * 1000
 
 // The context bar's colours, by /context's row names; any other used row is grey.
 const PART_COLOR: Record<string, string> = {
@@ -129,27 +128,20 @@ let ackedAt = 0
 let shown = 'Idle'
 // A pending return to Thinking after a tool.
 let settle: { cancel: () => void } | null = null
-// The status drawing and what it was built from: rebuilt only when the word or the turn changes, since
-// its turn timer counts up on its own.
-let status: { key: string; drawing: Drawing } = { key: '', drawing: statusSvg('', false) }
-// Each drawing's last markup and what is shown for it: a changed number rolls to its new value, and a
-// changed word fades out and the new one in. The fading markup holds still while it plays, so the drawing is not rebuilt meanwhile.
-let swaps: Record<string, { raw: string; shown: string; at: number }> = {}
-// Each drawing's shown markup, and the same with its pulse set in step as of when that markup first showed.
-const beats: Record<string, { shown: string; out: string }> = {}
-function inStepOf(name: string, shown: string, now: number): string {
-  if (beats[name]?.shown !== shown) beats[name] = { shown, out: inStep(shown, now) }
-  return beats[name].out
+// Each drawing's change-overs, piece by piece: a changed number rolls to its new value, a changed word
+// fades out as the new one comes in, a bar eases to its new length.
+let tracks: Record<string, Changes> = {}
+// A steady clock, in seconds, that every looping animation keeps in step with.
+const clockS = (now: number) => (now % 86_400_000) / 1000
+// The markup each drawing last showed, and what it was built from.
+// A drawing's markup as of `now`: its text in outlines, each piece's change-over as far along as it should
+// be, and its loops in step with the clock. The desktop replaces every image on each redraw and its
+// animations start over, so each redraw draws them as far along as they have got.
+function live(name: string, raw: string, now: number): string {
+  return atNow(outlined(changeOver((tracks[name] ??= changes()), raw, now)), clockS(now))
 }
-function swapped(name: string, raw: string, now: number): string {
-  const s = swaps[name]
-  if (!s) swaps[name] = { raw, shown: raw, at: 0 }
-  else if (raw !== s.raw) {
-    const shown = crossfade(s.raw, raw)
-    swaps[name] = { raw, shown, at: shown === raw ? 0 : now }
-  } else if (s.at && now - s.at >= FADE_MS) swaps[name] = { raw, shown: raw, at: 0 }
-  return swaps[name].shown
-}
+// The form Clawd woke into, which fades in from sleep until he next changes form.
+let wokeAs = ''
 
 type Saved = { lastReply?: number; hit?: number; tps?: number }
 
@@ -250,7 +242,7 @@ export const register: Register = on => {
   isWorking = false
   tools = 0
   pending = {}
-  swaps = {}
+  tracks = {}
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ctxdebug', description: 'TEMP: show what the session reports about context' })
@@ -443,20 +435,16 @@ export const register: Register = on => {
       // The first drawing just shows the state; later changes fade into it.
       if (wasAsleep !== undefined && asleep !== wasAsleep) sleepChangedAt = now
       wasAsleep = asleep
-      // The fade's markup holds still while it plays, so no drawing is rebuilt on every render meanwhile.
-      const ago = now - sleepChangedAt < FADE_S * 1000 ? 0 : FADE_S
+      // How far the dimming for sleep, or the brightening on waking, has got.
+      const ago = Math.min(FADE_S, (now - sleepChangedAt) / 1000)
+      if (sleepChangedAt === now && !asleep) wokeAs = name
       const dim = (source: string, to: number) => fade(source, asleep ? 1 : to, asleep ? to : 1, ago)
       const state = label ? verb : (periodAt(now)?.idle ?? 'Sleeping')
-      const statusKey = `${state}|${working}|${startedAt}`
-      if (status.key !== statusKey) {
-        status = { key: statusKey, drawing: statusSvg(state, working, startedAt && working ? Math.floor((now - startedAt) / 1000) : undefined) }
-      }
-      const word = status.drawing
-      const wordSource = swapped('status', word.source, now)
+      // Drawn afresh each time, its timer counting on from the turn's start.
+      const word = statusSvg(state, working, startedAt && working ? (now - startedAt) / 1000 : undefined)
       const base = {
         working,
         cacheMinutes: cacheLeft,
-        // Its markup holds still while it plays, like the fades, so the stats are not rebuilt on every render.
         warm: warmedAt && now - warmedAt < WARM_S * 1000 ? { kind: warmedKind, ago: 0 } : undefined,
         cost: spent || undefined,
         limit: used >= 0 ? used : undefined,
@@ -467,9 +455,8 @@ export const register: Register = on => {
         tps: speed >= 0 ? speed : undefined,
       }
       const stats = statsSvg(base)
-      // Each drawing's markup changes over (a roll, a fade) as before, its pulse kept in step across loads.
-      const statsSource = inStepOf('stats', swapped('stats', stats.source, now), now)
-      const statusSource = inStepOf('status', wordSource, now)
+      const statsSource = live('stats', stats.source, now)
+      const statusSource = live('status', word.source, now)
 
       // By day the band takes the hour's tint and sky; its drawings keep the colours that suit the tint.
       const period = periodAt(now)
@@ -480,12 +467,15 @@ export const register: Register = on => {
           <Svg source={night ? dim(forceDark(source), 0.6) : tone(source)} alt={alt} width={drawing.width} height={drawing.height} />
         </Box>
       )
+      // Woken, he fades up from his dimmed sleep; held as is until his next form, so his frame plays it once.
+      const awake = FORMS[name] ?? FORMS.Idle
+      const clawd = asleep ? fade(FORMS.Still ?? '', 1, 0.8, sleepChangedAt ? 0 : FADE_S) : sleepChangedAt && name === wokeAs ? fade(awake, 0.8, 1, 0) : awake
 
       return (
         <Box flexDirection="row" justifyContent="space-between" alignItems="center" backgroundColor={bg} borderStyle="round" borderColor={bg} padding="xs">
           {/* Every drawing keeps its own size, and the sky and Clawd never give way. */}
           <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1} minWidth={0} overflow="hidden">
-            <Box flexShrink={0}><Svg source={night ? sleepyClock(forceDark(clock.source)) : tone(clock.source)} alt="Clock" width={clock.width} height={clock.height} /></Box>
+            <Box flexShrink={0}><Svg source={atNow(night ? sleepyClock(forceDark(clock.source)) : tone(clock.source), clockS(now))} alt="Clock" width={clock.width} height={clock.height} /></Box>
             {/* Short of room the status's slot gives way first, then the stats'; each drawing leaves out
                 what no longer fits by itself (the stats: HIT, TOK/S, CACHE, the session pair, the limits). */}
             <Box flexDirection="row" alignItems="center" flexShrink={1} minWidth={0} overflow="hidden">
@@ -494,11 +484,11 @@ export const register: Register = on => {
             </Box>
           </Box>
           <Box flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
-            <Svg source={period ? period.art().source : sleepSvg().source} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />
+            <Svg source={atNow(outlined(period ? period.art().source : sleepSvg().source), clockS(now))} alt={period ? `The sky: ${period.name}` : 'Clawd is asleep'} width={SLEEP_W} height={BAR_HEIGHT} />
             {/* Only the current form is mounted: each is an animated sandboxed frame, and keeping every
                 form seen mounted and hidden piled them up until the desktop stopped repainting the band. */}
             {/* Asleep he holds still, dimmed; awake at night he is drawn as by day. */}
-            <Svg source={asleep ? fade(FORMS.Still ?? '', 1, 0.8, sleepChangedAt ? 0 : FADE_S) : (FORMS[name] ?? FORMS.Idle)} alt={`Clawd: ${name}`} width={CLAWD_W} height={BAR_HEIGHT} isInteractive />
+            <Svg source={clawd} alt={`Clawd: ${name}`} width={CLAWD_W} height={BAR_HEIGHT} isInteractive />
           </Box>
         </Box>
       )

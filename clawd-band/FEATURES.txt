@@ -1,4 +1,4 @@
-CLAWD BAND 1.7.1 - FEATURES
+CLAWD BAND 1.7.2 - FEATURES
 ===========================
 
 THE BAND
@@ -65,7 +65,7 @@ CLAWD'S FORMS
     Asking      AskUserQuestion
     Skill       Skill
 - Oops when a tool call errors.
-- Finishing a turn, looped whole for at least 10 seconds:
+- Finishing a turn, looped whole for at least 7 seconds:
     Done     a normal turn
     BigDone  a turn over 60 seconds
     Sad      an interrupted turn

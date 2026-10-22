@@ -2,6 +2,7 @@
 // spacing and colours are exact. Colours follow the light or dark scheme.
 
 import { ADVANCE, FONT_FACES } from './claude-font'
+import { GLYPHS } from './claude-glyphs'
 
 export const BAR_HEIGHT = 40
 
@@ -38,11 +39,16 @@ export type Svg = { source: string; width: number; height: number }
 
 // A drawing the band may give less room than its width. It never shrinks: it sets at its own size from the
 // left, and `css`, media queries on its own width, says what to leave out, so nothing has to guess how
-// wide the band is.
+// wide the band is. Pieces fade and slide as the room changes, but only from half a second after the
+// drawing loads: the desktop rebuilds it on every change, and a fresh one may first lay out at another
+// size, which would otherwise play as every piece sweeping back in.
 function squeezable(drawing: Svg, css: string): Svg {
   return {
     ...drawing,
-    source: drawing.source.replace('<svg ', '<svg preserveAspectRatio="xMinYMid slice" ').replace('</style>', `${css}</style>`),
+    source: drawing.source
+      .replace('<svg ', '<svg preserveAspectRatio="xMinYMid slice" ')
+      .replace('</style>', `.cb-live .cb-p{transition:opacity ${SWAP_S}s,transform ${SWAP_S}s}${css}</style><g><set attributeName="class" to="cb-live" begin="0.5s" fill="freeze"/>`)
+      .replace(/<\/svg>$/, '</g></svg>'),
   }
 }
 
@@ -277,12 +283,19 @@ const METER_W = 60
 // How full a limit is, as the class that colours its bar and percent: green under 40%, ink to 70%,
 // yellow to 90%, red to 95%, and red pulsing past that.
 const level = (p: number) => (p < 40 ? 'lvl-ok' : p < 70 ? 'lvl-mid' : p < 90 ? 'lvl-high' : 'lvl-max')
-const pulse = (p: number) => (p >= 95 ? `<animate class="cb-beat" begin="0s" attributeName="opacity" values="1;.35;1" dur="1s" repeatCount="indefinite"/>` : '')
+const pulse = (p: number) => (p >= 95 ? `<animate attributeName="opacity" values="1;.35;1" dur="1s" repeatCount="indefinite"/>` : '')
 
-// `source` with its pulse set in step with the clock as of `now`. A drawing's animations start over each
-// time it loads, so a pulse begun where the clock says it is reached keeps one steady beat across loads.
-export const inStep = (source: string, now: number) =>
-  source.replaceAll('class="cb-beat" begin="0s"', `class="cb-beat" begin="-${((now % 1000) / 1000).toFixed(3)}s"`)
+// `source` with every loop in it in step with `clock` (seconds on a steady clock). The desktop rebuilds a
+// drawing on every redraw and its animations start over; begun this far back, a pulse or a twinkle keeps
+// one beat. One-offs (fades, rolls, glows, the turn's timer) are timed where they are drawn.
+export function settle(source: string, clock: number): string {
+  return source.replace(/<(?:animate|animateTransform|animateMotion)\b[^>]*>/g, tag => {
+    if (!tag.includes('repeatCount="indefinite"') || tag.includes('class="cb-born"')) return tag
+    const m = /\bbegin="(-?[\d.]+)s"/.exec(tag)
+    const at = `begin="${((m ? Number(m[1]) : 0) - clock).toFixed(3)}s"`
+    return m ? tag.replace(m[0], at) : tag.replace(/^<(\w+)/, `<$1 ${at}`)
+  })
+}
 
 // One bevelled bar with a soft glow, toned by how full it is.
 function bar(x: number, y: number, w: number, h: number, percent: number): string {
@@ -428,7 +441,6 @@ export function statsSvg(stats: Stats): Svg {
   const pairGap = hitGap + at.tps!.w + CHIP_GAP
   const below = (px: number, css: string) => `@media (max-width:${(px - 0.5).toFixed(1)}px){${css}}`
   const css =
-    `.cb-p{transition:opacity ${SWAP_S}s,transform ${SWAP_S}s}` +
     below(w, `.cb-hit{opacity:0}.cb-tps,.cb-cache{transform:translateX(-${hitGap}px)}`) +
     below(w - hitGap, `.cb-tps{opacity:0}.cb-cache{transform:translateX(-${pairGap}px)}`) +
     below(w - pairGap, `.cb-cache{opacity:0}`) +
@@ -442,7 +454,7 @@ export function statusSvg(state: string, working: boolean, elapsed?: number): Sv
   const part = statusChip(CHIP_GAP - 1, state, working, elapsed)
   const w = Math.ceil(CHIP_GAP + part.width)
   // Short of room it fades out whole, and back in when there is room.
-  return squeezable(svg(w, `<g class="cb-p">${part.body}</g>`), `.cb-p{transition:opacity ${SWAP_S}s}@media (max-width:${w - 0.5}px){.cb-p{opacity:0}}`)
+  return squeezable(svg(w, `<g class="cb-p">${part.body}</g>`), `@media (max-width:${w - 0.5}px){.cb-p{opacity:0}}`)
 }
 
 
@@ -461,7 +473,7 @@ export const forceDark = (source: string) => source.replace('@media (prefers-col
 export const forceLight = (source: string) => source.replace('@media (prefers-color-scheme:dark)', '@media not all')
 
 // How long dimming for sleep, or brightening on waking, takes, in seconds.
-export const FADE_S = 0.8
+export const FADE_S = 0.3
 
 // How long a changed word or number takes to fade out and the new one in, in seconds.
 export const SWAP_S = 0.3
@@ -494,21 +506,6 @@ const rectKey = (attrs: string) => {
   return `${attr(attrs, 'y')}|${fill ?? attr(attrs, 'filter') ?? attr(attrs, 'class')}|${fill?.startsWith('#') ? '' : attr(attrs, 'x')}`
 }
 
-// `next` with each bar piece that moved easing from where it was in `prev`, over the same gentle ROLL_S as
-// the numbers, so a bar fills or empties smoothly. A context slice that is new grows in from nothing.
-function stretch(prev: string, next: string): string {
-  const before = new Map<string, string>()
-  for (const m of prev.matchAll(RECT_EL)) before.set(rectKey(m[1]!), m[1]!)
-  return next.replace(RECT_EL, (el, attrs: string) => {
-    const old = before.get(rectKey(attrs))
-    const [x, w] = [Number(attr(attrs, 'x')), Number(attr(attrs, 'width'))]
-    if (!old) return attr(attrs, 'fill')?.startsWith('#') ? `<rect${attrs}>${ease('width', 0, w)}</rect>` : el
-    const [ox, ow] = [Number(attr(old, 'x')), Number(attr(old, 'width'))]
-    if (ox === x && ow === w) return el
-    return `<rect${attrs}>${ox !== x ? ease('x', ox, x) : ''}${ow !== w ? ease('width', ow, w) : ''}</rect>`
-  })
-}
-
 // The new number rolled in like an odometer, inside its own line: each changed digit runs through the
 // digits between, up when the number grew and down when it shrank, so 59 rolls on into 60. The digits
 // are tabular, so every layer sets the same; a number that changed shape (9% to 10%) rolls in whole.
@@ -539,25 +536,81 @@ function roll(attrs: string, from: string, to: string, id: string): string {
     `<g clip-path="url(#${id})">${layers}</g>`
 }
 
-// `next` with each text whose words differ from `prev` at its place changing over: a number rolls to its new
-// value, anything else fades, the old out and then the new in. Texts that kept their words stay as they are.
-// Bars ease to their new length.
-export function crossfade(prev: string, next: string): string {
-  next = stretch(prev, next)
-  const before = new Map<string, { el: string; words: string }>()
-  for (const m of prev.matchAll(TEXT_EL)) before.set(placeOf(m[1]), { el: m[0], words: words(m[2]) })
-  const seen = new Set<string>()
-  let rolls = 0
-  const out = next.replace(TEXT_EL, (el, attrs: string, inner: string) => {
-    const place = placeOf(attrs)
-    seen.add(place)
-    const old = before.get(place)
-    if (old?.words === words(inner)) return el
-    if (old && /\d/.test(old.words) && /\d/.test(words(inner))) return roll(attrs, old.words, words(inner), `cb-roll${rolls++}`)
-    return (old ? fadeOut(old.el) : '') + fadeIn(el)
+// What a drawing's pieces are changing from, and since when: each text by its place, each bar piece by
+// its key. Kept per drawing across redraws, so every piece runs its own change-over: a number still rolling
+// is not cut short because another one changed.
+export type Changes = {
+  last: string
+  texts: Map<string, { old: string; words: string; at: number; gone?: boolean }>
+  rects: Map<string, { old?: string; at: number }>
+}
+export const changes = (): Changes => ({ last: '', texts: new Map(), rects: new Map() })
+
+// The turn's timer counts by itself and starts over at 0:00: it neither rolls nor fades.
+const isTick = (attrs: string) => attrs.includes('class="tick"')
+// A change-over's markup as far along as `s` seconds after it began.
+const begun = (chunk: string, s: number) =>
+  s > 0 ? chunk.replace(/<(animate|animateTransform)\b(?![^>]*repeatCount)/g, `<$1 begin="-${s.toFixed(3)}s"`) : chunk
+
+// `next` as of `now` (ms), each piece that changed within the last ROLL_S changing over from what it was:
+// a number rolls to its new value, other text fades (the old out as the new comes in), a bar eases to its
+// new length, a new context slice grows in. Texts and bar pieces that kept still stay as they are.
+export function changeOver(c: Changes, next: string, now: number): string {
+  const window = Math.max(SWAP_S, ROLL_S) * 1000
+  if (c.last) {
+    const texts = new Map<string, { el: string; words: string }>()
+    for (const m of c.last.matchAll(TEXT_EL)) if (!isTick(m[1]!)) texts.set(placeOf(m[1]!), { el: m[0], words: words(m[2]!) })
+    const seen = new Set<string>()
+    for (const m of next.matchAll(TEXT_EL)) {
+      if (isTick(m[1]!)) continue
+      const place = placeOf(m[1]!)
+      seen.add(place)
+      const old = texts.get(place)
+      if (!old) c.texts.set(place, { old: '', words: '', at: now })
+      else if (old.words !== words(m[2]!)) c.texts.set(place, { old: old.el, words: old.words, at: now })
+    }
+    for (const [place, old] of texts) if (!seen.has(place)) c.texts.set(place, { old: old.el, words: old.words, at: now, gone: true })
+    const rects = new Map<string, string>()
+    for (const m of c.last.matchAll(RECT_EL)) rects.set(rectKey(m[1]!), m[1]!)
+    for (const m of next.matchAll(RECT_EL)) {
+      const key = rectKey(m[1]!)
+      const old = rects.get(key)
+      if (old === undefined) {
+        if (attr(m[1]!, 'fill')?.startsWith('#')) c.rects.set(key, { at: now })
+      } else if (attr(old, 'x') !== attr(m[1]!, 'x') || attr(old, 'width') !== attr(m[1]!, 'width')) c.rects.set(key, { old, at: now })
+    }
+  }
+  c.last = next
+  for (const [k, v] of c.texts) if (now - v.at >= window) c.texts.delete(k)
+  for (const [k, v] of c.rects) if (now - v.at >= window) c.rects.delete(k)
+  const since = (at: number) => (now - at) / 1000
+
+  let out = next.replace(RECT_EL, (el, attrs: string) => {
+    const change = c.rects.get(rectKey(attrs))
+    if (!change) return el
+    const [x, w] = [Number(attr(attrs, 'x')), Number(attr(attrs, 'width'))]
+    const [ox, ow] = change.old === undefined ? [x, 0] : [Number(attr(change.old, 'x')), Number(attr(change.old, 'width'))]
+    return `<rect${attrs}>${begun((ox !== x ? ease('x', ox, x) : '') + (ow !== w ? ease('width', ow, w) : ''), since(change.at))}</rect>`
   })
-  const gone = [...before].filter(([place]) => !seen.has(place)).map(([, old]) => fadeOut(old.el)).join('')
+  let rolls = 0
+  out = out.replace(TEXT_EL, (el, attrs: string, inner: string) => {
+    const change = isTick(attrs) ? undefined : c.texts.get(placeOf(attrs))
+    if (!change || change.gone) return el
+    const chunk =
+      change.old && /\d/.test(change.words) && /\d/.test(words(inner))
+        ? roll(attrs, change.words, words(inner), `cb-roll${rolls++}`)
+        : (change.old ? fadeOut(change.old) : '') + fadeIn(el)
+    return begun(chunk, since(change.at))
+  })
+  const gone = [...c.texts.values()].filter(t => t.gone).map(t => begun(fadeOut(t.old), since(t.at))).join('')
   return gone ? out.replace(/<\/svg>\s*$/, `${gone}</svg>`) : out
+}
+
+// `next` changing over from `prev`, as both were just drawn.
+export function crossfade(prev: string, next: string): string {
+  const c = changes()
+  changeOver(c, prev, 0)
+  return changeOver(c, next, 0)
 }
 
 // A drawing at `to` opacity, easing there from `from` when it changed `ago` seconds back.
@@ -971,7 +1024,7 @@ function countingText(x: number, count: number, step: number, at: number): strin
       k === 0 ? `values="visible;hidden" keyTimes="0;${b}"` : `values="hidden;visible;hidden" keyTimes="0;${a};${b}"`
     out +=
       `<text class="tick" x="${x.toFixed(2)}" y="${TICK_Y}" visibility="${k === 0 ? 'visible' : 'hidden'}">` +
-      `<animate attributeName="visibility" calcMode="discrete" ${anim} dur="${dur}s" begin="-${at.toFixed(2)}s" repeatCount="indefinite"/>` +
+      `<animate class="cb-born" attributeName="visibility" calcMode="discrete" ${anim} dur="${dur}s" begin="-${at.toFixed(2)}s" repeatCount="indefinite"/>` +
       `${k}</text>`
   }
   return out
@@ -985,4 +1038,79 @@ function timerText(x: number, elapsed: number): string {
     countingText(x + TICK_DIGIT + 2.5, 6, 10, elapsed % 60) +
     countingText(x + TICK_DIGIT * 2 + 2.5, 10, 1, elapsed % 10)
   )
+}
+
+// Each text class's size, weight and letter spacing (in ems), as the style sets them.
+const TYPE: Record<string, { size: number; weight: number; tracking: number }> = {
+  label: { size: 8.5, weight: 600, tracking: 0.09 },
+  value: { size: 13, weight: 600, tracking: 0 },
+  pct: { size: 9.5, weight: 600, tracking: 0 },
+  soft: { size: 13, weight: 500, tracking: 0 },
+  tick: { size: 7, weight: 600, tracking: 0 },
+}
+const unescape = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+const PART = /<animate(?:Transform|Motion)?\b[^>]*\/>|<tspan([^>]*)>([^<]*)<\/tspan>|([^<]+)/g
+
+// `source` with every text drawn in Claude Sans outlines, so it needs no font: a frame on the desktop cannot
+// load the embedded one. Each letter's outline is defined once and placed where it is used; a text keeps its
+// class (and so its colour), its visibility and its animations, a slide of its y becoming a move of the whole,
+// and style rules for text apply to it as `.cb-t`.
+export function outlined(source: string): string {
+  const defs = new Map<string, string>()
+  const body = source.replace(TEXT_EL, (_el, attrs: string, inner: string) => {
+    const cls = attr(attrs, 'class') ?? ''
+    const sized = attr(attrs, 'font-size')
+    const type = TYPE[cls.split(' ')[0]!] ?? { size: sized ? Number(sized) : 13, weight: 600, tracking: 0 }
+    const font = GLYPHS[type.weight] ?? GLYPHS[600]!
+    const scale = type.size / font.upm
+    const step = type.tracking * font.upm
+    const anims: string[] = []
+    const runs: { text: string; hidden: boolean }[] = []
+    for (const m of inner.matchAll(PART)) {
+      if (m[0].startsWith('<animate')) anims.push(m[0])
+      else if (m[2] !== undefined) runs.push({ text: unescape(m[2]), hidden: /fill-opacity="0"/.test(m[1] ?? '') })
+      else runs.push({ text: unescape(m[3]!), hidden: false })
+    }
+    let at = 0
+    let uses = ''
+    for (const run of runs) {
+      for (const ch of run.text) {
+        const glyph = font.g[ch] ?? font.g['?']!
+        if (!run.hidden && glyph[1]) {
+          const id = `cb-g${type.weight}-${ch.codePointAt(0)}`
+          defs.set(id, glyph[1])
+          uses += `<use href="#${id}" x="${Math.round(at)}"/>`
+        }
+        at += glyph[0] + step
+      }
+    }
+    const width = (at - (at ? step : 0)) * scale
+    const x = Number(attr(attrs, 'x') ?? 0)
+    const y = Number(attr(attrs, 'y') ?? 0)
+    const anchor = attr(attrs, 'text-anchor')
+    const x0 = (anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x).toFixed(2)
+    // A slide of the text's y moves the outer group by the same amount.
+    const moves = anims
+      .map(a =>
+        a.includes('attributeName="y"')
+          ? a
+              .replace('<animate', '<animateTransform')
+              .replace('attributeName="y"', 'attributeName="transform" type="translate"')
+              .replace(/values="([^"]*)"/, (_m, v: string) => `values="${v.split(';').map(n => `0 ${(Number(n) - y).toFixed(2)}`).join(';')}"`)
+          : a,
+      )
+      .join('')
+    const keep = ['visibility', 'opacity', 'fill', 'fill-opacity', 'filter', 'clip-path']
+      .map(k => (attr(attrs, k) !== undefined ? ` ${k}="${attr(attrs, k)}"` : ''))
+      .join('')
+    // Its own animations move the outer group; the letters sit at the text's place inside it.
+    // Its words, for a reader that cannot see the outlines.
+    const said = esc(runs.map(r => r.text).join(''))
+    return `<g class="cb-t ${cls}" aria-label="${said}"${keep}>${moves}<g transform="translate(${x0} ${y}) scale(${scale.toFixed(6)} ${(-scale).toFixed(6)})">${uses}</g></g>`
+  })
+  const shapes = [...defs].map(([id, d]) => `<path id="${id}" d="${d}"/>`).join('')
+  return body
+    .replace(/@font-face\{[^}]*\}/g, '')
+    .replace(/(<style>|\})text\{/g, '$1.cb-t{')
+    .replace(/<\/svg>\s*$/, `<defs>${shapes}</defs></svg>`)
 }

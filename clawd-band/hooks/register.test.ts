@@ -1,5 +1,5 @@
 import { FORMS } from './clawd-frames'
-import { DAY_PERIODS, crossfade, fade, forceDark, isNight, periodAt, statsSvg, statusSvg } from './design'
+import { DAY_PERIODS, changeOver, changes, crossfade, fade, forceDark, isNight, periodAt, settle, statsSvg, statusSvg } from './design'
 import { expect, mock, test } from 'claude-code/testing'
 
 // Clawd's tests run only where its artwork has been generated (see tools/gen.py).
@@ -175,9 +175,9 @@ test('desktop: a resumed session opens with the last limits it saw, not blanks',
   on('session.usage' as any, async () => ({ value: { startedAt: 1, context: { window: 1000000 }, rateLimits: [] } }) as any)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true } as any)
   const json = JSON.stringify(await $.ui.render(band('desktop')))
-  expect(json).toContain('>5H<')
-  expect(json).toContain('>40%<')
-  expect(json).toContain('>9%<')
+  expect(json).toContain('aria-label=\\"5H\\"')
+  expect(json).toContain('aria-label=\\"40%\\"')
+  expect(json).toContain('aria-label=\\"9%\\"')
 })
 
 withoutClawd('desktop: without the Clawd artwork the bar still draws, with no Clawd', async ($, on) => {
@@ -216,7 +216,7 @@ test('desktop: CTX shows before the first reply, estimated from the breakdown', 
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true } as any)
   await new Promise(r => setTimeout(r, 50))
   const json = JSON.stringify(await $.ui.render(band('desktop')))
-  expect(json).toContain('>CTX<')
+  expect(json).toContain('aria-label=\\"CTX\\"')
 })
 
 // The cold-send guard, against a mocked model and context.
@@ -255,8 +255,8 @@ test('stats: usage is read mid-turn, not only when the turn ends', async ($, on)
   usd = 4.2
   await clock.advance(2000)
   const json = JSON.stringify(await $.ui.render(band('desktop')))
-  // The cost rolls from $1.00 to $4.20: its 1 on up to 4.
-  expect(json).toContain('4</tspan>')
+  // The cost rolls from $1.00 to $4.20, drawn in outlines.
+  expect(json).toContain('aria-label=\\"$4.20\\"')
   expect(json).toContain('keySplines')
 })
 
@@ -307,4 +307,41 @@ test('stats: a changed number rolls, a changed word fades; the rest stays put', 
   const filled = crossfade(low, statsSvg({ working: false, cacheMinutes: 45, limit: 60 }).source)
   expect(filled.match(/attributeName="width"/g)!.length).toBe(2)
   expect(crossfade(statusSvg('Reading', true).source, statusSvg('Editing', true).source)).toContain('values="0;1"')
+})
+
+test('status: the turn timer starts over at 0:00 without rolling or fading', () => {
+  const ticked = crossfade(statusSvg('Reading', true, 6).source, statusSvg('Reading', true, 0).source)
+  expect(ticked).not.toContain('attributeName="y"')
+  expect(ticked).not.toContain('values="1;0"')
+})
+
+test('a rebuilt drawing keeps its loops in step with the clock', () => {
+  const src = '<svg><animate values="1;0" dur="1s" repeatCount="indefinite"/><animate begin="-2s" values="0;1" dur="1s"/>' +
+    '<animate class="cb-born" begin="-5s" dur="60s" repeatCount="indefinite"/></svg>'
+  const out = settle(src, 100)
+  expect(out).toContain('<animate begin="-100.000s" values="1;0"')
+  // One-offs and the timer are timed where they are drawn.
+  expect(out).toContain('begin="-2s" values="0;1"')
+  expect(out).toContain('class="cb-born" begin="-5s"')
+})
+
+test('stats: a number still rolling carries on when another one changes', () => {
+  const c = changes()
+  const draw = (cost: string, tps: number) => statsSvg({ working: false, cacheMinutes: 45, cost, tps }).source
+  changeOver(c, draw('$1.00', 40), 0)
+  changeOver(c, draw('$2.00', 40), 1000)
+  // TOK/S changes 0.4s into the cost's roll: the cost keeps rolling, 0.4s along, and TOK/S starts its own.
+  const both = changeOver(c, draw('$2.00', 41), 1400)
+  expect(both).toContain('begin="-0.400s"')
+  expect(both.match(/attributeName="y"/g)!.length).toBeGreaterThan(2)
+  // Once both are done the drawing is plain.
+  expect(changeOver(c, draw('$2.00', 41), 3000)).not.toContain('attributeName="y"')
+})
+
+test('desktop: only Clawd is a frame; the rest are images with their text in outlines, needing no font', async ($, on) => {
+  on('ui.render', pass)
+  const json = JSON.stringify(await $.ui.render(band('desktop')))
+  expect(json.match(/"isInteractive":true/g)!.length).toBe(1)
+  expect(json).not.toContain('@font-face')
+  expect(json).toContain('cb-t')
 })
