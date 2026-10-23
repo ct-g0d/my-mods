@@ -4,7 +4,7 @@ The Claude desktop app's animated Clawd, living in a band above the prompt box w
 
 ![The band at dawn, midday, evening and night](docs/band.png)
 
-Version **1.8.2**. The full feature list is in [FEATURES.txt](FEATURES.txt).
+Version **1.8.3**. The full feature list is in [FEATURES.txt](FEATURES.txt).
 
 ## What's on the band
 
@@ -39,13 +39,13 @@ From 05:30 to 23:15 the day runs through eight periods, each with its own tint, 
 | Period | Starts | Idle word | Visitor |
 | --- | --- | --- | --- |
 | Dawn | 05:30 | Stirring | hot-air balloon rising |
-| Morning | 07:44 | Brewing | paper plane looping |
-| Late morning | 09:57 | Ready | kite on a string Clawd holds |
-| Midday | 12:10 | Lunching | plane contrail and a monarch butterfly |
-| Afternoon | 14:23 | Lounging | dandelion seeds drifting |
-| Golden hour | 16:36 | Basking | a V of geese heading home |
-| Dusk | 18:49 | Unwinding | sky lanterns rising |
-| Evening | 21:02 | Drowsy | full moon, stars and the first z's |
+| Morning | 07:00 | Brewing | paper plane looping |
+| Late morning | 09:30 | Ready | kite on a string Clawd holds |
+| Midday | 11:30 | Lunching | plane contrail and a monarch butterfly |
+| Afternoon | 13:30 | Lounging | dandelion seeds drifting |
+| Golden hour | 16:30 | Basking | a V of geese heading home |
+| Dusk | 17:30 | Unwinding | sky lanterns rising |
+| Evening | 18:45 | Drowsy | full moon, stars and the first z's |
 
 At night (23:15–05:30) the band goes dark whatever your theme. A crescent moon glows, stars twinkle, z's drift up from a sleeping Clawd, and comets with dusty tails glide across on random paths.
 

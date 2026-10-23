@@ -711,7 +711,7 @@ export function sleepSvg(): Svg {
   }
 }
 
-// The day, from the end of night at 05:30 to its start at 23:15, in eight even periods of 2h13m.
+// The day, from the end of night at 05:30 to its start at 23:15, in eight periods set by the real sun.
 // Each is drawn in the night's style. The sun crosses the drawing on one arc as the day goes, rising
 // out of a soft haze low on the left at dawn, highest in the middle at midday and sinking into haze
 // low on the right at dusk, glowing as the night's moon does; then the evening's full moon rises low
@@ -719,8 +719,8 @@ export function sleepSvg(): Svg {
 // comets do, fading at the edges: clouds lit for the hour, birds in the morning and heading home at
 // golden hour, a plane's contrail at midday, the last stars at dawn and the first at dusk, and the
 // first z's in the evening. A `dark` period draws the band dark.
-const DAY_START = 5 * 60 + 30
-const PERIOD_MIN = (23 * 60 + 15 - DAY_START) / 8
+// Minutes after midnight each period starts, then night: 05:30, 07:00, 09:30, 11:30, 13:30, 16:30, 17:30, 18:45, 23:15.
+const STARTS = [330, 420, 570, 690, 810, 990, 1050, 1125, 1395]
 
 // `idle` is what the status says while Clawd waits in that period.
 export type DayPeriod = { name: string; idle: string; bg: string; dark?: boolean; art: () => Svg }
@@ -1007,11 +1007,12 @@ export const DAY_PERIODS: DayPeriod[] = [
 export function periodAt(ms: number): DayPeriod | undefined {
   if (isNight(ms)) return undefined
   const d = new Date(ms)
-  return DAY_PERIODS[Math.min(7, Math.floor((d.getHours() * 60 + d.getMinutes() - DAY_START) / PERIOD_MIN))]
+  const m = d.getHours() * 60 + d.getMinutes()
+  return DAY_PERIODS[STARTS.filter(s => s <= m).length - 1]
 }
 
 // When each period starts, as minutes after midnight.
-export const periodStart = (i: number) => DAY_START + i * PERIOD_MIN
+export const periodStart = (i: number) => STARTS[i]
 
 // A digit that counts through 0..count-1 on its own, one step every `step` seconds, from `at`.
 function countingText(x: number, count: number, step: number, at: number): string {

@@ -82,6 +82,9 @@ test("desktop: idle shows the period's own word, or Sleeping at night", async ($
   const word = periodAt(Date.now())?.idle ?? 'Sleeping'
   expect(JSON.stringify(await $.ui.render(band('desktop')))).toContain(`Status: ${word}`)
   expect(DAY_PERIODS.map(p => p.idle)).toEqual(['Stirring', 'Brewing', 'Ready', 'Lunching', 'Lounging', 'Basking', 'Unwinding', 'Drowsy'])
+  const at = (h: number, m: number) => periodAt(new Date(2026, 9, 23, h, m).getTime())?.idle
+  expect([at(5, 30), at(6, 59), at(7, 0), at(12, 0), at(17, 45), at(20, 22), at(23, 14), at(23, 15)])
+    .toEqual(['Stirring', 'Stirring', 'Brewing', 'Lunching', 'Unwinding', 'Drowsy', 'Drowsy', undefined])
 })
 
 withClawd('desktop: Clawd is as tall as the chips', async ($, on) => {

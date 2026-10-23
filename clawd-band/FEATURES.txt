@@ -1,4 +1,4 @@
-CLAWD BAND 1.8.2 - FEATURES
+CLAWD BAND 1.8.3 - FEATURES
 ===========================
 
 THE BAND
@@ -78,19 +78,19 @@ CLAWD'S FORMS
     Sad      an interrupted turn
 - Asleep (dimmed) at night.
 
-THE SKY BY DAY (05:30 - 23:15, eight periods of 2h13m)
+THE SKY BY DAY (05:30 - 23:15, eight periods set by the sun)
 - Each period tints the band and draws its own sky beside Clawd.
 - The sun crosses one arc: rising out of a haze low on the left at dawn,
   highest at midday, sinking into haze low on the right at dusk.
 - Fuzzy clouds drift through, lit for the hour, fading at the edges.
     Dawn         05:30  peach      pink cloud, last stars fading, hot-air balloon rising
-    Morning      07:44  cream      white cloud, two birds, paper plane looping
-    Late morning 09:57  near-white clouds at two depths, kite on a string Clawd holds
-    Midday       12:10  default    plane with a fading contrail, 3D monarch butterfly
-    Afternoon    14:23  yellowish  three fat clouds, dandelion seeds drifting
-    Golden hour  16:36  amber      gold-lit cloud, a V of five geese heading home
-    Dusk         18:49  orange     rose cloud, first stars, sky lanterns rising
-    Evening      21:02  indigo     full moon low on the left, stars, two z's
+    Morning      07:00  cream      white cloud, two birds, paper plane looping
+    Late morning 09:30  near-white clouds at two depths, kite on a string Clawd holds
+    Midday       11:30  default    plane with a fading contrail, 3D monarch butterfly
+    Afternoon    13:30  yellowish  three fat clouds, dandelion seeds drifting
+    Golden hour  16:30  amber      gold-lit cloud, a V of five geese heading home
+    Dusk         17:30  orange     rose cloud, first stars, sky lanterns rising
+    Evening      18:45  indigo     full moon low on the left, stars, two z's
 
 THE SKY BY NIGHT (23:15 - 05:30)
 - The band goes dark whatever the system theme; stats and Clawd dim.
