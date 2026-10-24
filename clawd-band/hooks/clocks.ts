@@ -5,7 +5,7 @@ import { deskClock } from './pixel-clock'
 // The band's clock. By day it is the desk clock, its colours drifting with the hour so the clock itself
 // says what time of day it is; at night it is a red LED bedside clock.
 
-type Time = { H: number; m: number; s: number; pm: boolean; hr: string; mm: string; h1: string | null; h2: string; m1: string; m2: string }
+type Time = { H: number; m: number; s: number; hr: string; mm: string; h1: string | null; h2: string; m1: string; m2: string }
 type Glow = [string, number, number, number, number]
 
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -49,7 +49,7 @@ export function tintAt(ms: number): Tint {
 function time(ms: number): Time {
   const d = new Date(ms), H = d.getHours(), m = d.getMinutes()
   const hr = String(H % 12 || 12), mm = String(m).padStart(2, '0')
-  return { H, m, s: d.getSeconds(), pm: H >= 12, hr, mm, h1: hr.length > 1 ? hr[0]! : null, h2: hr.at(-1)!, m1: mm[0]!, m2: mm[1]! }
+  return { H, m, s: d.getSeconds(), hr, mm, h1: hr.length > 1 ? hr[0]! : null, h2: hr.at(-1)!, m1: mm[0]!, m2: mm[1]! }
 }
 // Four digit cells of width w, gaps sp and a colon gap cg, centred in the screen: each cell's x and the colon's.
 const row = (w: number, sp: number, cg: number, extra = 0) => {
@@ -79,7 +79,7 @@ function bedsideDigits(t: Time) {
   })
   const dots = [h * 0.3, h * 0.7].map(y => { const [X, Y] = P(cx, y); return `<circle cx="${X}" cy="${Y}" r="${th * 0.55}"/>` }).join('')
   return glowF('lg', ...glow) + `<g fill="${gc}" fill-opacity=".1">${off}${dots}</g>` +
-    `<g fill="${c}" filter="url(#lg)">${lit}<g>${dots}${BLINK}</g>${t.pm ? '<circle cx="9.6" cy="9.3" r=".9"/>' : ''}</g>`
+    `<g fill="${c}" filter="url(#lg)">${lit}<g>${dots}${BLINK}</g></g>`
 }
 function bedsideClock(ms: number): { source: string; width: number; height: number } {
   const source =
